@@ -7,6 +7,9 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 interface TopNavProps {
   view: string;
   onViewChange: (v: string) => void;
+  /** Override del flag connected (para evitar flash de hidratación).
+   *  Si se omite, se calcula client-side. */
+  connectedOverride?: boolean;
 }
 
 const TABS = [
@@ -14,9 +17,9 @@ const TABS = [
   { value: "mission", label: "Mission Control", icon: Cpu },
 ] as const;
 
-export function TopNav({ view, onViewChange }: TopNavProps) {
-  // Es seguro leer en render: process.env es estable en runtime
-  const connected = isSupabaseConfigured();
+export function TopNav({ view, onViewChange, connectedOverride }: TopNavProps) {
+  // Si el parent pasa el flag server-side, lo usamos. Sino, calculamos client-side.
+  const connected = connectedOverride ?? isSupabaseConfigured();
 
   return (
     <header className="sticky top-0 z-30 backdrop-blur-md bg-background/80 border-b border-white/5">
@@ -63,16 +66,23 @@ export function TopNav({ view, onViewChange }: TopNavProps) {
 
         {/* Status indicators */}
         <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-1.5 text-[10px] font-pixel uppercase tracking-wider text-muted-foreground">
+          <div className="hidden md:flex items-center gap-1.5 text-[10px] font-pixel uppercase tracking-wider">
             <span
               className={cn(
                 "w-1.5 h-1.5 rounded-full pulse-dot",
                 connected ? "bg-primary" : "bg-accent"
               )}
-              title={connected ? "Conectado a Supabase" : "Modo demo (mock data)"}
+              title={connected ? "Conectado a Supabase" : "Modo demo (mock data, sin escritura)"}
             />
             <Radio className="w-3 h-3" />
-            <span>{connected ? "LIVE" : "DEMO"}</span>
+            <span style={{ color: connected ? "var(--primary)" : "var(--accent)" }}>
+              {connected ? "LIVE" : "DEMO"}
+            </span>
+            {!connected && (
+              <span className="hidden lg:inline text-muted-foreground normal-case font-mono text-[9px] ml-1">
+                · sin escritura
+              </span>
+            )}
           </div>
 
           <a

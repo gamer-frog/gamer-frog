@@ -50,7 +50,7 @@ export async function GET() {
     const authStatus = !a.active
       ? "offline"
       : state === "error"
-      ? "pending"
+      ? "rejected" // el frontend original pinta "rejected" en rojo, "pending" semi-transparente
       : "approved";
 
     const detail =

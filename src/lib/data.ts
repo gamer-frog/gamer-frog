@@ -6,6 +6,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { assertWritable, getDataMode } from "@/lib/data-mode";
 import {
   MOCK_AGENTS,
   MOCK_CRON_JOBS,
@@ -134,12 +135,14 @@ export async function setAgentPresence(input: {
   zone?: AgentZone;
   current_task_id?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!isSupabaseConfigured()) {
-    // mock: solo log, no persiste
-    return { ok: true };
+  if (getDataMode() !== "live") {
+    return {
+      ok: false,
+      error: "Modo DEMO: no se puede cambiar presencia. Configurá Supabase para habilitar escritura.",
+    };
   }
   const supabase = await createClient();
-  if (!supabase) return { ok: true };
+  if (!supabase) return { ok: false, error: "Supabase client unavailable" };
   const patch: Record<string, unknown> = {
     heartbeat_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -197,9 +200,14 @@ export async function patchTask(
   id: string,
   patch: Partial<Pick<Task, "status" | "priority" | "human_feedback" | "assigned_agent_id" | "title" | "description">>
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (getDataMode() !== "live") {
+    return {
+      ok: false,
+      error: "Modo DEMO: no se puede editar tareas. Configurá Supabase para habilitar escritura.",
+    };
+  }
   const supabase = await createClient();
-  if (!supabase) return { ok: true };
+  if (!supabase) return { ok: false, error: "Supabase client unavailable" };
   const { error } = await supabase.from("tasks").update(patch).eq("id", id);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
@@ -213,11 +221,14 @@ export async function createTask(input: {
   priority?: TaskPriority;
   source?: Task["source"];
 }): Promise<{ ok: boolean; error?: string; id?: string }> {
-  if (!isSupabaseConfigured()) {
-    return { ok: true, id: `mock-${Date.now()}` };
+  if (getDataMode() !== "live") {
+    return {
+      ok: false,
+      error: "Modo DEMO: no se pueden crear tareas. Configurá Supabase para habilitar escritura.",
+    };
   }
   const supabase = await createClient();
-  if (!supabase) return { ok: true, id: `mock-${Date.now()}` };
+  if (!supabase) return { ok: false, error: "Supabase client unavailable" };
   const { data, error } = await supabase
     .from("tasks")
     .insert({
@@ -261,9 +272,16 @@ export async function appendTaskEvent(input: {
   message: string;
   payload?: Record<string, unknown> | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!isSupabaseConfigured()) return { ok: true };
+  if (getDataMode() !== "live") {
+    // En demo, los eventos se aceptan silenciosamente porque el webhook
+    // de cron los necesita, pero no se persisten. Se loguea para debug.
+    if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
+      console.log("[demo] task_event (no persistido):", input.event_type, input.message);
+    }
+    return { ok: true };
+  }
   const supabase = await createClient();
-  if (!supabase) return { ok: true };
+  if (!supabase) return { ok: false, error: "Supabase client unavailable" };
   const { error } = await supabase.from("task_events").insert({
     task_id: input.task_id ?? null,
     agent_id: input.agent_id ?? null,

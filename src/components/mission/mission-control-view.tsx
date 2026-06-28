@@ -3,6 +3,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { Filter, Loader2, Plus, Search, X } from "lucide-react";
 import { usePoll } from "@/hooks/use-poll";
+import { useOfficeBridge } from "@/hooks/use-office-bridge";
+import { useRealtime } from "@/hooks/use-realtime";
 import { KpiCards } from "@/components/mission/kpi-cards";
 import { TaskCard } from "@/components/mission/task-card";
 import { ActivityFeed } from "@/components/mission/activity-feed";
@@ -51,6 +53,7 @@ const STATUS_FILTERS: Array<{ value: TaskStatus | "all"; label: string; color: s
 ];
 
 export function MissionControlView() {
+  const officeBridge = useOfficeBridge();
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -69,7 +72,9 @@ export function MissionControlView() {
     return (await r.json()) as AgentsData;
   }, []);
   const officeFetcher = useCallback(async () => {
-    const r = await fetch("/api/star-office/agents");
+    // Endpoint dedicado para Mission Control: devuelve {agents: AgentWithPresence[]}
+    // (no el del office que devuelve array plano para compat con el repo original).
+    const r = await fetch("/api/mission/agents-with-presence");
     if (!r.ok) throw new Error("office");
     return (await r.json()) as AgentsWithPresenceData;
   }, []);
@@ -102,6 +107,16 @@ export function MissionControlView() {
   const officeAgents = officeData?.agents ?? [];
   const departments = deptsData?.departments ?? [];
   const events = eventsData?.events ?? [];
+
+  // Supabase Realtime — refresca inmediatamente cuando hay cambios.
+  // En modo demo es no-op (sin Supabase configurado).
+  useRealtime(["tasks", "task_events", "agent_presence"], () => {
+    refreshTasks();
+  });
+  useRealtime(["agents", "departments"], () => {
+    // Estos cambian con menor frecuencia, forzamos refresco del office agents
+    // que también alimenta el sidebar de agents
+  });
 
   // KPIs (hoy)
   const kpis = useMemo(() => {
@@ -239,10 +254,13 @@ export function MissionControlView() {
                     key={a.id}
                     agent={a}
                     onClick={() => {
-                      // Traer al office tab — comunicar vía evento
-                      window.dispatchEvent(
-                        new CustomEvent("botardo:open-agent", { detail: a.slug })
-                      );
+                      // Cambiar al tab "office" y pedirle al iframe que se enfoque
+                      // en el agente. El bridge hace postMessage al iframe.
+                      if (typeof window !== "undefined") {
+                        window.location.hash = "office";
+                        // Dar tiempo al iframe de montarse antes de mandar el mensaje
+                        setTimeout(() => officeBridge.focusAgent(a.slug), 300);
+                      }
                     }}
                   />
                 ))

@@ -468,16 +468,16 @@
         }
         #asset-move-row .btn-move { color:#1f2937; }
         #asset-move-row .btn-move {
-            background-image:url('/star-office/btn-move-house-sprite.png?v=1782628565');
+            background-image:url('/star-office/btn-move-house-sprite.png?v=1782630640');
         }
         #asset-move-row .btn-home {
-            background-image:url('/star-office/btn-back-home-sprite.png?v=1782628565');
+            background-image:url('/star-office/btn-back-home-sprite.png?v=1782630640');
         }
         #asset-broker-row .btn-broker {
-            background-image:url('/star-office/btn-broker-sprite.png?v=1782628565');
+            background-image:url('/star-office/btn-broker-sprite.png?v=1782630640');
         }
         #asset-broker-row .btn-diy {
-            background-image:url('/star-office/btn-diy-sprite.png?v=1782628565');
+            background-image:url('/star-office/btn-diy-sprite.png?v=1782630640');
         }
         #asset-manual-panel {
             margin-top:0;
@@ -648,7 +648,7 @@
         #control-bar #btn-state-writing,
         #control-bar #btn-state-syncing,
         #control-bar #btn-state-error {
-            background-image: url('/star-office/btn-state-sprite.png?v=1782628565');
+            background-image: url('/star-office/btn-state-sprite.png?v=1782630640');
             background-color: transparent !important;
             background-repeat: no-repeat;
             background-size: 300% 100%;
@@ -683,7 +683,7 @@
         }
         /* 装修房间按钮使用像素精灵皮肤 */
         #control-bar #btn-open-drawer {
-            background-image: url('/star-office/btn-open-drawer-sprite.png?v=1782628565') !important;
+            background-image: url('/star-office/btn-open-drawer-sprite.png?v=1782630640') !important;
             background-color: transparent !important;
             background-repeat: no-repeat !important;
             background-size: 300% 100% !important;
@@ -1287,7 +1287,7 @@
         <button id="lang-btn-cn" onclick="setUILanguage('zh')" style="padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">CN</button>
     </div>
 
-    <script src="/star-office/vendor/phaser-3.80.1.min.js?v=1782628565"></script>
+    <script src="/star-office/vendor/phaser-3.80.1.min.js?v=1782630640"></script>
     <script>
         // 简易中英文切换
         let uiLang = localStorage.getItem('uiLang') || 'en';
@@ -1390,7 +1390,7 @@
         function ensureMemoBgVisible() {
             const panel = document.getElementById('memo-panel');
             if (!panel) return;
-            panel.style.backgroundImage = "url('/star-office/memo-bg.webp?v=1782628565')";
+            panel.style.backgroundImage = "url('/star-office/memo-bg.webp?v=1782630640')";
             panel.classList.remove('no-bg');
         }
 
@@ -3976,53 +3976,53 @@ function toggleBrokerPanel() {
 
             // cache-busting to avoid stale background on client/CDN
             // use smaller/new map version provided by user
-            this.load.image('office_bg', '/star-office/office_bg_small.webp?v=1782628565');
-            this.load.spritesheet('star_idle', '/star-office/star-idle-v5.png?v=1782628565', { frameWidth: 256, frameHeight: 256 });
+            this.load.image('office_bg', '/star-office/office_bg_small.webp?v=1782630640');
+            this.load.spritesheet('star_idle', '/star-office/star-idle-v5.png?v=1782630640', { frameWidth: 256, frameHeight: 256 });
 
             // Furniture
-            this.load.image('sofa_idle', '/star-office/sofa-idle-v3.png?v=1782628565');
-            this.load.image('sofa_shadow', '/star-office/sofa-shadow-v1.png?v=1782628565');
+            this.load.image('sofa_idle', '/star-office/sofa-idle-v3.png?v=1782630640');
+            this.load.image('sofa_shadow', '/star-office/sofa-shadow-v1.png?v=1782630640');
 
             // Decor
-            this.load.spritesheet('plants', '/star-office/plants-spritesheet.webp?v=1782628565', { frameWidth: 160, frameHeight: 160 });
-            this.load.spritesheet('posters', '/star-office/posters-spritesheet.webp?v=1782628565', { frameWidth: 160, frameHeight: 160 });
-            this.load.spritesheet('coffee_machine', '/star-office/coffee-machine-v3-grid.webp?v=1782628565', { frameWidth: 230, frameHeight: 230 });
-            this.load.image('coffee_machine_shadow', '/star-office/coffee-machine-shadow-v1.png?v=1782628565');
-            this.load.spritesheet('serverroom', '/star-office/serverroom-spritesheet.webp?v=1782628565', { frameWidth: 180, frameHeight: 251 });
+            this.load.spritesheet('plants', '/star-office/plants-spritesheet.webp?v=1782630640', { frameWidth: 160, frameHeight: 160 });
+            this.load.spritesheet('posters', '/star-office/posters-spritesheet.webp?v=1782630640', { frameWidth: 160, frameHeight: 160 });
+            this.load.spritesheet('coffee_machine', '/star-office/coffee-machine-v3-grid.webp?v=1782630640', { frameWidth: 230, frameHeight: 230 });
+            this.load.image('coffee_machine_shadow', '/star-office/coffee-machine-shadow-v1.png?v=1782630640');
+            this.load.spritesheet('serverroom', '/star-office/serverroom-spritesheet.webp?v=1782630640', { frameWidth: 180, frameHeight: 251 });
 
             // Error / bug animation: 180x180, 96 frames (repacked grid)
-            this.load.spritesheet('error_bug', '/star-office/error-bug-spritesheet-grid.webp?v=1782628565', { frameWidth: 220, frameHeight: 220 });
+            this.load.spritesheet('error_bug', '/star-office/error-bug-spritesheet-grid.webp?v=1782630640', { frameWidth: 220, frameHeight: 220 });
 
             // 运行时 Gemini 配置（用于搬家/中介生图）
             this.geminiConfig = { hasKey: false, model: 'gemini-3.1-flash-image-preview' };
 
             // Cat spritesheet: 160x160, 4x4=16 cats
-            this.load.spritesheet('cats', '/star-office/cats-spritesheet.webp?v=1782628565', { frameWidth: 160, frameHeight: 160 });
+            this.load.spritesheet('cats', '/star-office/cats-spritesheet.webp?v=1782630640', { frameWidth: 160, frameHeight: 160 });
 
             // Desk
             // Star working animation: repacked to grid to avoid WebGL max texture size limits
             // NOTE: prefer WebP for size, PNG fallback
             // 动态替换后按最新素材识别：当前 writing 素材为 300x300 单帧
-            this.load.spritesheet('star_working', '/star-office/star-working-spritesheet-grid.webp?v=1782628565', { frameWidth: 300, frameHeight: 300 });
+            this.load.spritesheet('star_working', '/star-office/star-working-spritesheet-grid.webp?v=1782630640', { frameWidth: 300, frameHeight: 300 });
 
             // Sync state animation (256x256, 多帧): 非同步显示首帧，同步从第2帧循环
-            this.load.spritesheet('sync_anim', '/star-office/sync-animation-v3-grid.webp?v=1782628565', { frameWidth: 256, frameHeight: 256 });
+            this.load.spritesheet('sync_anim', '/star-office/sync-animation-v3-grid.webp?v=1782630640', { frameWidth: 256, frameHeight: 256 });
 
             // Memo background image
             // memo 底图固定走 png，避免某些端 webp 透明通道异常导致“底图丢失”
-            this.load.image('memo_bg', '/star-office/memo-bg.webp?v=1782628565');
+            this.load.image('memo_bg', '/star-office/memo-bg.webp?v=1782630640');
             // Desk v2 (webp only)
-            this.load.image('desk_v2', '/star-office/desk-v3.webp?v=1782628565');
+            this.load.image('desk_v2', '/star-office/desk-v3.webp?v=1782630640');
             // Flower spritesheet (65x65, 16 frames)
-            this.load.spritesheet('flowers', '/star-office/flowers-bloom-v2.webp?v=1782628565', { frameWidth: FLOWERS_FRAME_W, frameHeight: FLOWERS_FRAME_H });
+            this.load.spritesheet('flowers', '/star-office/flowers-bloom-v2.webp?v=1782630640', { frameWidth: FLOWERS_FRAME_W, frameHeight: FLOWERS_FRAME_H });
 
             // Guest/Demo agent sprites
-            this.load.spritesheet('guest_anim_1', '/star-office/guest_anim_1.webp?v=1782628565', { frameWidth: 32, frameHeight: 32 });
-            this.load.spritesheet('guest_anim_2', '/star-office/guest_anim_2.webp?v=1782628565', { frameWidth: 32, frameHeight: 32 });
-            this.load.spritesheet('guest_anim_3', '/star-office/guest_anim_3.webp?v=1782628565', { frameWidth: 32, frameHeight: 32 });
-            this.load.spritesheet('guest_anim_4', '/star-office/guest_anim_4.webp?v=1782628565', { frameWidth: 32, frameHeight: 32 });
-            this.load.spritesheet('guest_anim_5', '/star-office/guest_anim_5.webp?v=1782628565', { frameWidth: 32, frameHeight: 32 });
-            this.load.spritesheet('guest_anim_6', '/star-office/guest_anim_6.webp?v=1782628565', { frameWidth: 32, frameHeight: 32 });
+            this.load.spritesheet('guest_anim_1', '/star-office/guest_anim_1.webp?v=1782630640', { frameWidth: 32, frameHeight: 32 });
+            this.load.spritesheet('guest_anim_2', '/star-office/guest_anim_2.webp?v=1782630640', { frameWidth: 32, frameHeight: 32 });
+            this.load.spritesheet('guest_anim_3', '/star-office/guest_anim_3.webp?v=1782630640', { frameWidth: 32, frameHeight: 32 });
+            this.load.spritesheet('guest_anim_4', '/star-office/guest_anim_4.webp?v=1782630640', { frameWidth: 32, frameHeight: 32 });
+            this.load.spritesheet('guest_anim_5', '/star-office/guest_anim_5.webp?v=1782630640', { frameWidth: 32, frameHeight: 32 });
+            this.load.spritesheet('guest_anim_6', '/star-office/guest_anim_6.webp?v=1782630640', { frameWidth: 32, frameHeight: 32 });
         }
 
         function create() {
@@ -4885,5 +4885,49 @@ function toggleBrokerPanel() {
         // 启动游戏
         initGame();
     </script>
+
+<script>
+// Botardo OS — PostMessage bridge (parent ↔ iframe)
+// Permite que el parent (Mission Control) le pida al office que se enfoque
+// en un agente específico. El office original no soporta esto, así que
+// por ahora solo forzamos un fetchStatus() para refrescar el estado visual.
+(function() {
+  if (window.parent === window) return; // no estamos embebidos
+  window.addEventListener('message', function(ev) {
+    // Solo aceptar mensajes del parent directo (no de cualquier origen)
+    if (ev.source !== window.parent) return;
+    var data = ev.data || {};
+    if (data.source !== 'botardo-os') return;
+    if (data.type === 'focus-agent') {
+      // Forzar refresco de estado para que el sprite del agente se mueva
+      // a la posición correcta según su estado actual.
+      try {
+        if (typeof window.fetchStatus === 'function') window.fetchStatus();
+        if (typeof window.fetchGuestAgents === 'function') window.fetchGuestAgents();
+        // Avisar al parent que recibimos el mensaje (para feedback en UI)
+        ev.source.postMessage({
+          source: 'botardo-os-office',
+          type: 'focus-agent-ack',
+          agentSlug: data.agentSlug
+        }, ev.origin);
+      } catch (e) {
+        console.warn('[botardo-os bridge] error:', e);
+      }
+    }
+    if (data.type === 'ping') {
+      ev.source.postMessage({
+        source: 'botardo-os-office',
+        type: 'pong'
+      }, ev.origin);
+    }
+  });
+  // Avisar al parent que estamos listos para recibir mensajes
+  window.parent.postMessage({
+    source: 'botardo-os-office',
+    type: 'ready'
+  }, '*');
+})();
+</script>
+
 </body>
 </html>

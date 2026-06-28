@@ -88,6 +88,64 @@ for ep in ["/api/star-office/yesterday-memo", "/api/star-office/agents", "/api/s
     if ep not in patched:
         sys.exit(f"FAIL: no encontré {ep} en el resultado final")
 
+# 4) Inyectar PostMessage bridge ANTES de </body> para que el parent
+# pueda pedirle al office que se "enfoque" en un agente específico.
+# Esto es la única modificación funcional (no de URLs) que hacemos al HTML.
+# Se implementation mínimo: el office no responde, pero escucha y loguea.
+# Una vez que Star-Office-UI agregue soporte nativo, este script se puede sacar.
+BRIDGE_SCRIPT = """
+<script>
+// Botardo OS — PostMessage bridge (parent ↔ iframe)
+// Permite que el parent (Mission Control) le pida al office que se enfoque
+// en un agente específico. El office original no soporta esto, así que
+// por ahora solo forzamos un fetchStatus() para refrescar el estado visual.
+(function() {
+  if (window.parent === window) return; // no estamos embebidos
+  window.addEventListener('message', function(ev) {
+    // Solo aceptar mensajes del parent directo (no de cualquier origen)
+    if (ev.source !== window.parent) return;
+    var data = ev.data || {};
+    if (data.source !== 'botardo-os') return;
+    if (data.type === 'focus-agent') {
+      // Forzar refresco de estado para que el sprite del agente se mueva
+      // a la posición correcta según su estado actual.
+      try {
+        if (typeof window.fetchStatus === 'function') window.fetchStatus();
+        if (typeof window.fetchGuestAgents === 'function') window.fetchGuestAgents();
+        // Avisar al parent que recibimos el mensaje (para feedback en UI)
+        ev.source.postMessage({
+          source: 'botardo-os-office',
+          type: 'focus-agent-ack',
+          agentSlug: data.agentSlug
+        }, ev.origin);
+      } catch (e) {
+        console.warn('[botardo-os bridge] error:', e);
+      }
+    }
+    if (data.type === 'ping') {
+      ev.source.postMessage({
+        source: 'botardo-os-office',
+        type: 'pong'
+      }, ev.origin);
+    }
+  });
+  // Avisar al parent que estamos listos para recibir mensajes
+  window.parent.postMessage({
+    source: 'botardo-os-office',
+    type: 'ready'
+  }, '*');
+})();
+</script>
+"""
+if "botardo-os-office" not in patched:
+    if "</body>" in patched:
+        patched = patched.replace("</body>", BRIDGE_SCRIPT + "\n</body>", 1)
+        changes.append("PostMessage bridge inyectado antes de </body> (1)")
+    else:
+        sys.exit("FAIL: no encontré </body> para inyectar el bridge")
+else:
+    changes.append("PostMessage bridge ya presente (skip)")
+
 HTML.write_text(patched, encoding="utf-8")
 
 print("✅ Patch aplicado correctamente a", HTML)

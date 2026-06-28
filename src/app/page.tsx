@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { TopNav } from "@/components/shared/top-nav";
 import { MissionControlView } from "@/components/mission/mission-control-view";
 import { ArrowLeft, ExternalLink, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useHashState } from "@/hooks/use-hash-state";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 export default function Home() {
+  // Estado inicial calculado client-side (evita flash porque se evalúa en el primer render)
+  const [initialConnected] = useState(() => isSupabaseConfigured());
   const [view, setView] = useHashState("office");
 
   const handleViewChange = useCallback(
@@ -28,7 +31,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <TopNav view={view} onViewChange={handleViewChange} />
+      <TopNav view={view} onViewChange={handleViewChange} connectedOverride={initialConnected} />
 
       {view === "office" ? (
         <>
