@@ -1,0 +1,2002 @@
+     1→<!DOCTYPE html>
+     2→<html lang="zh-CN">
+     3→<head>
+     4→    <meta charset="UTF-8">
+     5→    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     6→    <title>Star 的像素办公室</title>
+     7→    <style>
+     8→        @font-face {
+     9→            font-family: 'ArkPixel';
+    10→            src: url('/static/fonts/ark-pixel-12px-proportional-zh_cn.ttf.woff2') format('woff2');
+    11→            font-weight: normal;
+    12→            font-style: normal;
+    13→        }
+    14→        * { margin: 0; padding: 0; box-sizing: border-box; }
+    15→        body {
+    16→            background: #1a1a2e;
+    17→            display: flex;
+    18→            flex-direction: column;
+    19→            justify-content: flex-start;
+    20→            align-items: center;
+    21→            min-height: 100vh;
+    22→            font-family: 'ArkPixel', 'Courier New', monospace;
+    23→            padding: 20px 0;
+    24→            gap: 10px;
+    25→            overflow-x: hidden;
+    26→        }
+    27→        /* 底部面板容器 */
+    28→        #main-stage {
+    29→            position: relative;
+    30→            width: 1280px;
+    31→            transition: transform .25s ease;
+    32→            will-change: transform;
+    33→        }
+    34→        body.drawer-open #main-stage {
+    35→            /* 与右侧抽屉并列：按视口动态左移，确保与抽屉至少保留 20px 间隔 */
+    36→            transform: translateX(calc(-1 * max(0px, (min(320px, 92vw) + 20px) - ((100vw - 1280px) / 2))));
+    37→        }
+    38→        #bottom-panels {
+    39→            display: flex;
+    40→            gap: 20px;
+    41→            width: 1280px;
+    42→            max-width: none;
+    43→            justify-content: flex-start;
+    44→            margin-top: 20px;
+    45→        }
+    46→        #game-container {
+    47→            position: relative;
+    48→            border: 0;
+    49→            image-rendering: pixelated;
+    50→            width: 1280px;
+    51→            height: 720px;
+    52→            max-width: none;
+    53→            max-height: none;
+    54→            aspect-ratio: auto;
+    55→            overflow: hidden;
+    56→        }
+    57→        #game-container canvas {
+    58→            width: 100% !important;
+    59→            height: 100% !important;
+    60→            image-rendering: pixelated;
+    61→            /* 再兜底一次：即使外层高度变化，也不要拉伸变形 */
+    62→            object-fit: contain;
+    63→            /* 边框改为直接贴合画布内部，避免“框比地图大” */
+    64→            box-shadow: inset 0 0 0 4px #64477d;
+    65→            position: relative;
+    66→            z-index: 10;
+    67→        }
+    68→        /* 首屏骨架：避免 Phaser 未就绪时纯黑屏 */
+    69→        #game-skeleton {
+    70→            position: absolute;
+    71→            inset: 0;
+    72→            z-index: 5;
+    73→            background: radial-gradient(ellipse at center, #2a2a45 0%, #1a1a2e 65%, #151522 100%);
+    74→            overflow: hidden;
+    75→        }
+    76→        #game-skeleton::before {
+    77→            content: '';
+    78→            position: absolute;
+    79→            inset: 0;
+    80→            background: repeating-linear-gradient(
+    81→                0deg,
+    82→                rgba(255,255,255,0.03) 0px,
+    83→                rgba(255,255,255,0.03) 1px,
+    84→                transparent 1px,
+    85→                transparent 12px
+    86→            );
+    87→            opacity: .6;
+    88→        }
+    89→        #game-skeleton .hint {
+    90→            position: absolute;
+    91→            left: 50%;
+    92→            top: 50%;
+    93→            transform: translate(-50%, -50%);
+    94→            color: #cbd5e1;
+    95→            font-size: 14px;
+    96→            letter-spacing: 1px;
+    97→            text-shadow: 0 1px 0 rgba(0,0,0,.4);
+    98→        }
+    99→        #loading-overlay {
+   100→            position: fixed;
+   101→            top: 0;
+   102→            left: 0;
+   103→            width: 100%;
+   104→            height: 100%;
+   105→            background: #1a1a2e;
+   106→            display: flex;
+   107→            flex-direction: column;
+   108→            justify-content: center;
+   109→            align-items: center;
+   110→            z-index: 100000;
+   111→        }
+   112→        #loading-text {
+   113→            color: #ffd700;
+   114→            font-size: 18px;
+   115→            margin-bottom: 20px;
+   116→        }
+   117→        #loading-progress-container {
+   118→            width: 300px;
+   119→            height: 20px;
+   120→            background: #333;
+   121→            border: 2px solid #555;
+   122→            border-radius: 4px;
+   123→        }
+   124→        #loading-progress-bar {
+   125→            height: 100%;
+   126→            background: linear-gradient(90deg, #e94560, #ffd700);
+   127→            width: 0%;
+   128→            transition: width 0.3s ease;
+   129→        }
+   130→        #status-text {
+   131→            position: absolute;
+   132→            bottom: 12px;
+   133→            left: 12px;
+   134→            transform: none;
+   135→            color: #eee;
+   136→            font-size: 14px;
+   137→            background: rgba(0,0,0,0.7);
+   138→            padding: 8px 12px;
+   139→            border-radius: 4px;
+   140→            max-width: calc(100% - 24px);
+   141→            text-align: left;
+   142→            font-family: 'ArkPixel', 'Courier New', monospace;
+   143→            z-index: 30;
+   144→            pointer-events: none;
+   145→            white-space: nowrap;
+   146→            overflow: hidden;
+   147→            text-overflow: ellipsis;
+   148→            line-height: 1.2;
+   149→        }
+   150→        /* 状态控制栏 */
+   151→        #control-bar {
+   152→            position: relative;
+   153→            background: #141722;
+   154→            padding: 10px 10px 12px;
+   155→            border-radius: 0;
+   156→            border: 4px solid #0e1119;
+   157→            box-shadow: none;
+   158→            width: 390px;
+   159→            height: 300px;
+   160→            display: flex;
+   161→            flex-direction: column;
+   162→            gap: 10px;
+   163→            overflow: hidden;
+   164→        }
+   165→        #control-bar::before {
+   166→            content: '';
+   167→            position: absolute;
+   168→            inset: 0;
+   169→            pointer-events: none;
+   170→            background-image:
+   171→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   172→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   173→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   174→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
+   175→            background-repeat: no-repeat;
+   176→            background-size:
+   177→                calc(50% - 14px) 2px, calc(50% - 14px) 2px,
+   178→                2px calc(50% - 14px), 2px calc(50% - 14px),
+   179→                calc(50% - 14px) 2px, calc(50% - 14px) 2px,
+   180→                2px calc(50% - 14px), 2px calc(50% - 14px);
+   181→            background-position:
+   182→                9px 8px, calc(50% + 5px) 8px,
+   183→                8px 9px, calc(100% - 10px) 9px,
+   184→                9px calc(100% - 10px), calc(50% + 5px) calc(100% - 10px),
+   185→                8px calc(50% + 5px), calc(100% - 10px) calc(50% + 5px);
+   186→        }
+   187→        #control-bar::after {
+   188→            content: '';
+   189→            position: absolute;
+   190→            inset: 0;
+   191→            pointer-events: none;
+   192→            background-image:
+   193→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   194→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   195→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   196→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
+   197→            background-repeat: no-repeat;
+   198→            background-size:
+   199→                9px 4px, 4px 9px,
+   200→                9px 4px, 4px 9px,
+   201→                9px 4px, 4px 9px,
+   202→                9px 4px, 4px 9px;
+   203→            background-position:
+   204→                left top, left top,
+   205→                right top, right top,
+   206→                left bottom, left bottom,
+   207→                right bottom, right bottom;
+   208→        }
+   209→        #control-bar-title {
+   210→            color: #ffd700;
+   211→            font-size: 16px;
+   212→            font-weight: bold;
+   213→            text-align: center;
+   214→            letter-spacing: 1px;
+   215→            padding: 6px 0 10px;
+   216→            border-bottom: 0;
+   217→        }
+   218→        #control-buttons {
+   219→            display: grid;
+   220→            grid-template-columns: repeat(4, minmax(0, 1fr));
+   221→            gap: 8px;
+   222→            align-content: start;
+   223→            padding-top: 4px;
+   224→            padding-left: 10px;
+   225→            padding-right: 10px;
+   226→            box-sizing: border-box;
+   227→        }
+   228→        #btn-open-drawer {
+   229→            grid-column: 1 / -1;
+   230→            background: #78a340;
+   231→            border-color: #8fbe4a;
+   232→            color: #f3ffe6;
+   233→            font-weight: 700;
+   234→        }
+   235→
+   236→        #asset-drawer-backdrop {
+   237→            position: fixed;
+   238→            inset: 0;
+   239→            background: rgba(0, 0, 0, 0.5);
+   240→            z-index: 1000005;
+   241→            display: none;
+   242→            -webkit-tap-highlight-color: transparent;
+   243→        }
+   244→        #asset-drawer-backdrop.open {
+   245→            display: block;
+   246→        }
+   247→
+   248→        #asset-drawer {
+   249→            position: fixed;
+   250→            top: 0;
+   251→            right: -100vw;
+   252→            width: 320px;
+   253→            max-width: 92vw;
+   254→            height: 100vh;
+   255→            height: 100dvh;
+   256→            background: #111827;
+   257→            border-left: 2px solid #22c55e;
+   258→            box-shadow: -8px 0 24px rgba(0,0,0,0.45);
+   259→            transition: right 0.25s ease;
+   260→            z-index: 1000010;
+   261→            display: flex;
+   262→            flex-direction: column;
+   263→            overscroll-behavior: contain;
+   264→        }
+   265→        #asset-drawer.open { right: 0; }
+   266→        #asset-drawer-header {
+   267→            color: #ecfdf5;
+   268→            font-size: 15px;
+   269→            padding: 12px;
+   270→            border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+   271→            display: flex;
+   272→            justify-content: space-between;
+   273→            align-items: center;
+   274→            background: #0b1220;
+   275→        }
+   276→        #asset-drawer-body {
+   277→            padding: 10px;
+   278→            overflow: auto;
+   279→            color: #e5e7eb;
+   280→            font-size: 12px;
+   281→            position: relative;
+   282→            display: flex;
+   283→            flex-direction: column;
+   284→            min-height: 0;
+   285→        }
+   286→        .asset-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+   287→        .asset-toolbar input { flex:1; min-width: 150px; padding:6px 8px; border-radius:6px; border:1px solid rgba(148, 163, 184, 0.22); background:#1f2937; color:#fff; }
+   288→        .asset-toolbar button, #asset-drawer-header button { cursor:pointer; border:1px solid rgba(148, 163, 184, 0.24); background:#1f2937; color:#fff; border-radius:6px; padding:6px 8px; font-family:'ArkPixel', monospace; }
+   289→        .asset-toolbar button:hover, #asset-drawer-header button:hover { border-color:#64748b; }
+   290→        #asset-list {
+   291→            display:flex;
+   292→            flex-direction:column;
+   293→            gap:6px;
+   294→            flex: 1 1 auto;
+   295→            min-height: 120px;
+   296→            max-height: none;
+   297→            overflow-y: auto;
+   298→            padding-right: 2px;
+   299→            scrollbar-color: #1f2937 #0b1220;
+   300→            scrollbar-width: thin;
+   301→        }
+   302→        #asset-list::-webkit-scrollbar { width: 8px; }
+   303→        #asset-list::-webkit-scrollbar-track { background: #0b1220; }
+   304→        #asset-list::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 0; border: 1px solid #111827; }
+   305→        #asset-upload-panel {
+   306→            position: sticky;
+   307→            left: 8px;
+   308→            right: 8px;
+   309→            width: auto;
+   310→            max-width: none;
+   311→            box-sizing: border-box;
+   312→            margin-top: 10px;
+   313→            margin-bottom: 0;
+   314→            bottom: 8px;
+   315→            background: rgba(11, 18, 32, 0.96);
+   316→            border: 1px solid rgba(71, 85, 105, 0.75);
+   317→            border-radius: 10px;
+   318→            padding: 10px;
+   319→            z-index: 1000030;
+   320→            display: none;
+   321→            box-shadow: 0 12px 30px rgba(0,0,0,.45);
+   322→            backdrop-filter: blur(2px);
+   323→        }
+   324→        #asset-upload-panel.active {
+   325→            display: block;
+   326→        }
+   327→        .asset-upload-grid {
+   328→            display: grid;
+   329→            grid-template-columns: 1fr 1fr;
+   330→            gap: 8px;
+   331→        }
+   332→        .asset-upload-grid > button {
+   333→            width: 100%;
+   334→            min-height: 36px;
+   335→            padding: 6px 8px;
+   336→            white-space: nowrap;
+   337→            overflow: hidden;
+   338→            text-overflow: ellipsis;
+   339→            background: #111827;
+   340→            color: #e5e7eb;
+   341→            border: 1px solid #334155;
+   342→        }
+   343→        .asset-upload-grid > button:hover {
+   344→            background: #1f2937;
+   345→            border-color: #475569;
+   346→            color: #f8fafc;
+   347→        }
+   348→        .asset-item {
+   349→            border: 1px solid rgba(148, 163, 184, 0.16);
+   350→            background: #0f172a;
+   351→            border-radius: 8px;
+   352→            padding: 8px;
+   353→            display: grid;
+   354→            grid-template-columns: 56px 1fr 44px;
+   355→            gap: 8px;
+   356→            align-items: center;
+   357→            cursor: pointer;
+   358→            transition: border-color .12s ease, background-color .12s ease;
+   359→        }
+   360→        .asset-item:hover { border-color: rgba(148, 163, 184, 0.34); background:#111b2f; }
+   361→        .asset-item.active { border-color: #22c55e; box-shadow: 0 0 0 1px rgba(34,197,94,.55) inset; }
+   362→        .asset-vis-btn {
+   363→            min-width: 34px;
+   364→            height: 28px;
+   365→            padding: 2px 4px;
+   366→            border: 1px solid rgba(148, 163, 184, 0.16);
+   367→            background: rgba(15, 23, 42, 0.66);
+   368→            color: #d1d5db;
+   369→            border-radius: 999px;
+   370→            font-size: 14px;
+   371→            cursor: pointer;
+   372→            font-family:'ArkPixel', monospace;
+   373→        }
+   374→        .asset-vis-btn:hover { border-color:rgba(148, 163, 184, 0.38); color:#ecfccb; background:rgba(30,41,59,.92); }
+   375→        .asset-thumb { width:56px; height:56px; object-fit: contain; background:#0b1220; border:1px solid rgba(148, 163, 184, 0.16); border-radius:6px; }
+   376→        .asset-meta { line-height: 1.45; }
+   377→        .asset-path { color:#d1fae5; word-break: break-all; }
+   378→        .asset-sub { color:#9ca3af; font-size:11px; }
+   379→        #asset-upload-result { white-space: normal; line-height: 1.5; }
+   380→        #asset-upload-result .hint-p { margin: 0 0 6px 0; }
+   381→        #asset-upload-result .hint-p:last-child { margin-bottom: 0; }
+   382→        .asset-plus-box { width:100%; height:92px; border:2px dashed #4b5563; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#9ca3af; font-size:34px; cursor:pointer; user-select:none; }
+   383→        .asset-plus-box:hover { border-color:#22c55e; color:#22c55e; }
+   384→        .asset-preview-box { border:1px solid rgba(148, 163, 184, 0.10); border-radius:8px; padding:6px; background:#0b1220; margin-bottom:8px; }
+   385→        .asset-preview-title { color:#9ca3af; font-size:11px; margin-bottom:4px; }
+   386→        #asset-auth-gate {
+   387→            border: 0;
+   388→            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+   389→            border-radius: 0;
+   390→            padding: 0 0 10px;
+   391→            margin-bottom: 10px;
+   392→            background: transparent;
+   393→        }
+   394→        #asset-home-favorites {
+   395→            border: 0;
+   396→            border-top: 1px solid rgba(148, 163, 184, 0.16);
+   397→            border-radius: 0;
+   398→            background: transparent;
+   399→            padding: 6px 0 4px;
+   400→            margin: 0;
+   401→        }
+   402→        #asset-home-favorites-title {
+   403→            font-size: 12px;
+   404→            line-height: 1.35;
+   405→            margin-bottom: 4px;
+   406→            display: flex;
+   407→            align-items: center;
+   408→            min-height: 20px;
+   409→        }
+   410→        .asset-preview-img { width:100%; height:92px; object-fit:contain; background:#111827; border:1px solid rgba(148, 163, 184, 0.14); border-radius:6px; }
+   411→        .home-fav-list { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+   412→        .home-fav-item { min-width:126px; max-width:126px; border:0; border-radius:8px; background:#111827; padding:6px; box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.12); }
+   413→        .home-fav-item img { width:100%; height:70px; object-fit:cover; border:1px solid rgba(148, 163, 184, 0.14); border-radius:6px; image-rendering:pixelated; }
+   414→        .home-fav-meta { color:#9ca3af; font-size:10px; margin-top:4px; line-height:1.3; min-height:24px; }
+   415→        .home-fav-item button { width:100%; margin-top:4px; border:1px solid rgba(148, 163, 184, 0.20); background:#1f2937; color:#fff; border-radius:6px; padding:4px 6px; font-family:'ArkPixel', monospace; cursor:pointer; }
+   416→        .home-fav-item button:hover { border-color:#64748b; }
+   417→        .home-fav-del { background:#2a1416 !important; border-color: rgba(248,113,113,.35) !important; color:#fecaca !important; }
+   418→        .home-fav-del:hover { border-color: rgba(248,113,113,.55) !important; }
+   419→        #gemini-api-doc-link { color:#86efac; text-decoration: underline; text-underline-offset: 2px; }
+   420→        #gemini-api-doc-link:hover { color:#bbf7d0; }
+   421→
+   422→
+   423→        #asset-move-panel { border:0; background:transparent; border-radius:0; padding:6px 0 8px; margin-bottom:6px; border-bottom: 1px solid rgba(148, 163, 184, 0.18); display:flex; flex-direction:column; justify-content:center; gap:6px; min-height:132px; }
+   424→        #asset-home-actions-panel { border:0; background:transparent; border-radius:0; padding:6px 0 8px; border-bottom: 1px solid rgba(148, 163, 184, 0.18); }
+   425→        #asset-manual-panel {
+   426→            border-top: 0;
+   427→            padding-top: 6px;
+   428→            margin-top: 6px;
+   429→        }
+   430→        #asset-home-actions-panel .asset-toolbar,
+   431→        #asset-move-row,
+   432→        #asset-broker-row {
+   433→            display:grid;
+   434→            grid-template-columns: 1fr 1fr;
+   435→            gap:8px;
+   436→            margin:0;
+   437→            align-items:center;
+   438→        }
+   439→        #asset-home-actions-panel .asset-toolbar > button { width:100%; margin:0; min-height:42px; }
+   440→        #asset-move-row .btn-move,
+   441→        #asset-move-row .btn-home,
+   442→        #asset-broker-row .btn-broker,
+   443→        #asset-broker-row .btn-diy {
+   444→            width:100%;
+   445→            min-width:0;
+   446→            height:42px;
+   447→            padding:8px 8px 0;
+   448→            border:none;
+   449→            border-radius:0;
+   450→            background-color: transparent !important;
+   451→            background-repeat:no-repeat;
+   452→            background-size:300% 100%;
+   453→            background-position:0 0;
+   454→            image-rendering: pixelated;
+   455→            appearance:none;
+   456→            -webkit-appearance:none;
+   457→            color:#fff;
+   458→            text-align:center;
+   459→            font-size:14px;
+   460→            font-weight:400;
+   461→            letter-spacing:.2px;
+   462→            text-shadow:none;
+   463→            display:inline-flex;
+   464→            align-items:flex-start;
+   465→            justify-content:center;
+   466→            transition: padding-top .08s ease, filter .12s ease;
+   467→            box-shadow:none;
+   468→        }
+   469→        #asset-move-row .btn-move { color:#1f2937; }
+   470→        #asset-move-row .btn-move {
+   471→            background-image:url('/static/btn-move-house-sprite.png?v={{VERSION_TIMESTAMP}}');
+   472→        }
+   473→        #asset-move-row .btn-home {
+   474→            background-image:url('/static/btn-back-home-sprite.png?v={{VERSION_TIMESTAMP}}');
+   475→        }
+   476→        #asset-broker-row .btn-broker {
+   477→            background-image:url('/static/btn-broker-sprite.png?v={{VERSION_TIMESTAMP}}');
+   478→        }
+   479→        #asset-broker-row .btn-diy {
+   480→            background-image:url('/static/btn-diy-sprite.png?v={{VERSION_TIMESTAMP}}');
+   481→        }
+   482→        #asset-manual-panel {
+   483→            margin-top:0;
+   484→            max-height:0;
+   485→            opacity:0;
+   486→            transform:translateY(-6px);
+   487→            overflow:hidden;
+   488→            pointer-events:none;
+   489→            transition:max-height .28s ease, opacity .22s ease, transform .28s ease, margin-top .28s ease;
+   490→        }
+   491→        #asset-manual-panel.open {
+   492→            margin-top:8px;
+   493→            max-height:1600px;
+   494→            opacity:1;
+   495→            transform:translateY(0);
+   496→            pointer-events:auto;
+   497→        }
+   498→        #asset-broker-panel {
+   499→            margin-top:0;
+   500→            border:1px dashed #334155;
+   501→            border-radius:8px;
+   502→            padding:8px;
+   503→            background:#0f172a;
+   504→            max-height:0;
+   505→            opacity:0;
+   506→            transform:translateY(-6px);
+   507→            overflow:hidden;
+   508→            pointer-events:none;
+   509→            transition:max-height .28s ease, opacity .22s ease, transform .28s ease, margin-top .28s ease;
+   510→        }
+   511→        #asset-broker-panel.open {
+   512→            margin-top:8px;
+   513→            max-height:520px;
+   514→            opacity:1;
+   515→            transform:translateY(0);
+   516→            pointer-events:auto;
+   517→        }
+   518→        #asset-broker-prompt {
+   519→            width:100%; min-height:66px; resize:vertical;
+   520→            padding:8px; border-radius:6px;
+   521→            border:1px solid #334155; background:#111827; color:#e5e7eb;
+   522→            font-family:'ArkPixel', monospace; font-size:12px;
+   523→            box-sizing:border-box;
+   524→        }
+   525→        #asset-broker-actions { margin-top:8px; display:flex; justify-content:flex-end; }
+   526→        #asset-broker-actions button {
+   527→            background:#0ea5e9;
+   528→            color:#e0f2fe;
+   529→            border-color:#38bdf8;
+   530→            font-weight:700;
+   531→            font-size:12px;
+   532→            padding:7px 10px;
+   533→            min-width:112px;
+   534→            text-align:center;
+   535→            box-shadow: 0 2px 0 rgba(0,0,0,.25);
+   536→            transition: transform .08s ease, filter .12s ease, box-shadow .12s ease;
+   537→        }
+   538→        #asset-move-row .btn-move:hover,
+   539→        #asset-move-row .btn-home:hover,
+   540→        #asset-broker-row .btn-broker:hover,
+   541→        #asset-broker-row .btn-diy:hover,
+   542→        #asset-broker-actions button:hover {
+   543→            filter: brightness(1.06);
+   544→            background-color: transparent !important;
+   545→        }
+   546→        #asset-move-row .btn-move:active,
+   547→        #asset-move-row .btn-home:active,
+   548→        #asset-broker-row .btn-broker:active,
+   549→        #asset-broker-row .btn-diy:active,
+   550→        #asset-broker-actions button:active,
+   551→        #asset-move-row .btn-move.is-active,
+   552→        #asset-move-row .btn-home.is-active,
+   553→        #asset-broker-row .btn-broker.is-active,
+   554→        #asset-broker-row .btn-diy.is-active,
+   555→        #asset-broker-actions button.is-active {
+   556→            padding-top:13px;
+   557→            filter: brightness(0.96);
+   558→            background-color: transparent !important;
+   559→        }
+   560→
+   561→        #asset-move-row .btn-move:active,
+   562→        #asset-move-row .btn-move.is-active,
+   563→        #asset-move-row .btn-home:active,
+   564→        #asset-move-row .btn-home.is-active,
+   565→        #asset-broker-row .btn-broker:active,
+   566→        #asset-broker-row .btn-broker.is-active,
+   567→        #asset-broker-row .btn-diy:active,
+   568→        #asset-broker-row .btn-diy.is-active {
+   569→            background-position:50% 0;
+   570→        }
+   571→        #asset-move-row .btn-move.is-done,
+   572→        #asset-move-row .btn-home.is-done,
+   573→        #asset-broker-row .btn-broker.is-done,
+   574→        #asset-broker-row .btn-diy.is-done {
+   575→            background-position:100% 0;
+   576→        }
+   577→
+   578→
+   579→        #asset-highlight {
+   580→            position: fixed;
+   581→            border: 3px solid #22c55e;
+   582→            background: transparent;
+   583→            box-shadow: none;
+   584→            pointer-events: none;
+   585→            display: none;
+   586→            z-index: 999998;
+   587→        }
+   588→        #room-loading-overlay {
+   589→            position: fixed;
+   590→            left: 0;
+   591→            top: 0;
+   592→            width: 0;
+   593→            height: 0;
+   594→            background: rgba(0, 0, 0, 0.62);
+   595→            z-index: 1000000;
+   596→            display: none;
+   597→            align-items: center;
+   598→            justify-content: center;
+   599→            pointer-events: auto;
+   600→            border-radius: 10px;
+   601→        }
+   602→        #lang-toggle-group,
+   603→        #lang-toggle-group button {
+   604→            position: relative;
+   605→            z-index: 1000002 !important;
+   606→        }
+   607→        .room-loading-inner {
+   608→            display: flex;
+   609→            flex-direction: column;
+   610→            align-items: center;
+   611→            gap: 10px;
+   612→            padding: 16px 20px;
+   613→            border-radius: 10px;
+   614→            border: 1px solid rgba(255,255,255,.2);
+   615→            background: rgba(0,0,0,.36);
+   616→            color: #fff;
+   617→            font-family: 'ArkPixel', monospace;
+   618→            font-size: 20px;
+   619→            text-shadow: 0 2px 6px rgba(0,0,0,.45);
+   620→        }
+   621→        #room-loading-emoji {
+   622→            font-size: 52px;
+   623→            line-height: 1;
+   624→            min-height: 56px;
+   625→        }
+   626→        #room-loading-text {
+   627→            font-size: 20px;
+   628→            letter-spacing: 1px;
+   629→        }
+   630→        #control-buttons button { height: 52px; }
+   631→        #control-bar button {
+   632→            background: #3a3f4f;
+   633→            color: #fff;
+   634→            border: 2px solid #555;
+   635→            border-radius: 4px;
+   636→            padding: 8px 10px;
+   637→            cursor: pointer;
+   638→            font-family: 'ArkPixel', monospace;
+   639→            font-size: 12px;
+   640→            transition: all 0.2s;
+   641→        }
+   642→        #control-bar button:hover {
+   643→            background: #4a4f5f;
+   644→            border-color: #e94560;
+   645→        }
+   646→        /* Star 状态四按钮（不含装修）使用像素精灵皮肤 */
+   647→        #control-bar #btn-state-idle,
+   648→        #control-bar #btn-state-writing,
+   649→        #control-bar #btn-state-syncing,
+   650→        #control-bar #btn-state-error {
+   651→            background-image: url('/static/btn-state-sprite.png?v={{VERSION_TIMESTAMP}}');
+   652→            background-color: transparent !important;
+   653→            background-repeat: no-repeat;
+   654→            background-size: 300% 100%;
+   655→            background-position: 0 0;
+   656→            border: none;
+   657→            border-radius: 0;
+   658→            appearance: none;
+   659→            -webkit-appearance: none;
+   660→            image-rendering: pixelated;
+   661→            color: #5e6366;
+   662→            font-weight: 400;
+   663→            text-shadow: none;
+   664→            padding: 0 8px 9px;
+   665→            line-height: 1;
+   666→            transition: padding-top .08s ease, padding-bottom .08s ease, filter .12s ease;
+   667→        }
+   668→        #control-bar #btn-state-idle:hover,
+   669→        #control-bar #btn-state-writing:hover,
+   670→        #control-bar #btn-state-syncing:hover,
+   671→        #control-bar #btn-state-error:hover {
+   672→            background-color: transparent !important;
+   673→            filter: brightness(1.04);
+   674→        }
+   675→        #control-bar #btn-state-idle:active,
+   676→        #control-bar #btn-state-writing:active,
+   677→        #control-bar #btn-state-syncing:active,
+   678→        #control-bar #btn-state-error:active {
+   679→            background-position: 50% 0;
+   680→            padding-top: 5px;
+   681→            padding-bottom: 0;
+   682→            filter: brightness(0.97);
+   683→        }
+   684→        /* 装修房间按钮使用像素精灵皮肤 */
+   685→        #control-bar #btn-open-drawer {
+   686→            background-image: url('/static/btn-open-drawer-sprite.png?v={{VERSION_TIMESTAMP}}') !important;
+   687→            background-color: transparent !important;
+   688→            background-repeat: no-repeat !important;
+   689→            background-size: 300% 100% !important;
+   690→            background-position: 0 0 !important;
+   691→            border: none !important;
+   692→            border-radius: 0 !important;
+   693→            appearance: none;
+   694→            -webkit-appearance: none;
+   695→            image-rendering: pixelated;
+   696→            color: #5e6366 !important;
+   697→            font-weight: 400 !important;
+   698→            font-size: 15px !important;
+   699→            text-shadow: none !important;
+   700→            padding: 0 10px 10px !important;
+   701→            line-height: 1 !important;
+   702→            transition: padding-top .08s ease, padding-bottom .08s ease, filter .12s ease;
+   703→        }
+   704→        #control-bar #btn-open-drawer:hover {
+   705→            background-color: transparent !important;
+   706→            filter: brightness(1.04);
+   707→        }
+   708→        #control-bar #btn-open-drawer:active {
+   709→            background-position: 50% 0 !important;
+   710→            padding-top: 5px !important;
+   711→            padding-bottom: 5px !important;
+   712→            filter: brightness(0.97);
+   713→        }
+   714→        /* Guest Agent 名单面板（右下角） */
+   715→        #guest-agent-panel {
+   716→            position: relative;
+   717→            width: 390px;
+   718→            height: 300px;
+   719→            background: #141722;
+   720→            padding: 10px 10px 12px;
+   721→            border-radius: 0;
+   722→            border: 4px solid #0e1119;
+   723→            box-shadow: none;
+   724→            display: flex;
+   725→            flex-direction: column;
+   726→            gap: 10px;
+   727→            overflow: hidden;
+   728→        }
+   729→        #guest-agent-panel::before {
+   730→            content: '';
+   731→            position: absolute;
+   732→            inset: 0;
+   733→            pointer-events: none;
+   734→            background-image:
+   735→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   736→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   737→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   738→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
+   739→            background-repeat: no-repeat;
+   740→            background-size:
+   741→                calc(50% - 14px) 2px, calc(50% - 14px) 2px,
+   742→                2px calc(50% - 14px), 2px calc(50% - 14px),
+   743→                calc(50% - 14px) 2px, calc(50% - 14px) 2px,
+   744→                2px calc(50% - 14px), 2px calc(50% - 14px);
+   745→            background-position:
+   746→                9px 8px, calc(50% + 5px) 8px,
+   747→                8px 9px, calc(100% - 10px) 9px,
+   748→                9px calc(100% - 10px), calc(50% + 5px) calc(100% - 10px),
+   749→                8px calc(50% + 5px), calc(100% - 10px) calc(50% + 5px);
+   750→        }
+   751→        #guest-agent-panel::after {
+   752→            content: '';
+   753→            position: absolute;
+   754→            inset: 0;
+   755→            pointer-events: none;
+   756→            background-image:
+   757→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   758→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   759→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   760→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
+   761→            background-repeat: no-repeat;
+   762→            background-size:
+   763→                9px 4px, 4px 9px,
+   764→                9px 4px, 4px 9px,
+   765→                9px 4px, 4px 9px,
+   766→                9px 4px, 4px 9px;
+   767→            background-position:
+   768→                left top, left top,
+   769→                right top, right top,
+   770→                left bottom, left bottom,
+   771→                right bottom, right bottom;
+   772→        }
+   773→        #guest-agent-panel-title {
+   774→            color: #ffd700;
+   775→            font-size: 16px;
+   776→            font-weight: bold;
+   777→            text-align: center;
+   778→            letter-spacing: 1px;
+   779→            padding: 6px 0 10px;
+   780→            border-bottom: 0;
+   781→            margin-bottom: 0;
+   782→        }
+   783→        #guest-agent-list {
+   784→            flex-grow: 1;
+   785→            overflow-y: auto;
+   786→            display: flex;
+   787→            flex-direction: column;
+   788→            gap: 8px;
+   789→            padding-right: 4px;
+   790→        }
+   791→        #guest-agent-list::-webkit-scrollbar { width: 6px; }
+   792→        #guest-agent-list::-webkit-scrollbar-track { background: #1a1a2e; }
+   793→        #guest-agent-list::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+   794→        .guest-agent-item {
+   795→            display: flex;
+   796→            align-items: center;
+   797→            justify-content: space-between;
+   798→            gap: 8px;
+   799→            background: #3a3f4f;
+   800→            padding: 8px 10px;
+   801→            border-radius: 6px;
+   802→            border: 1px solid #555;
+   803→        }
+   804→        .guest-agent-name {
+   805→            color: #fff;
+   806→            font-size: 14px;
+   807→            flex-shrink: 0;
+   808→        }
+   809→        .guest-agent-buttons {
+   810→            display: flex;
+   811→            gap: 6px;
+   812→            flex-shrink: 0;
+   813→        }
+   814→        .guest-agent-buttons button {
+   815→            padding: 6px 10px;
+   816→            border-radius: 4px;
+   817→            border: 2px solid #555;
+   818→            background: #4a4f5f;
+   819→            color: #fff;
+   820→            font-family: 'ArkPixel', monospace;
+   821→            font-size: 12px;
+   822→            cursor: pointer;
+   823→            transition: all 0.2s;
+   824→        }
+   825→        .guest-agent-buttons button:hover {
+   826→            background: #5a5f6f;
+   827→            border-color: #e94560;
+   828→        }
+   829→        .guest-agent-buttons button.leave-btn {
+   830→            background: #5a1818;
+   831→            border-color: #e94560;
+   832→        }
+   833→        .guest-agent-buttons button.leave-btn:hover {
+   834→            background: #6a2828;
+   835→        }
+   836→        /* Memo 区域 - 4:3 小正方形 */
+   837→        #memo-panel {
+   838→            position: relative;
+   839→            width: 460px;
+   840→            height: 300px;
+   841→            background-image: url('/static/memo-bg.webp');
+   842→            background-size: cover;
+   843→            background-position: center;
+   844→            border: 4px solid #0e1119;
+   845→            border-radius: 0;
+   846→            padding: 14px 16px;
+   847→            box-shadow: none;
+   848→            display: flex;
+   849→            flex-direction: column;
+   850→            overflow: hidden;
+   851→        }
+   852→        #memo-panel::before {
+   853→            content: '';
+   854→            position: absolute;
+   855→            inset: 0;
+   856→            pointer-events: none;
+   857→            background-image:
+   858→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   859→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   860→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   861→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
+   862→            background-repeat: no-repeat;
+   863→            background-size:
+   864→                calc(50% - 14px) 2px, calc(50% - 14px) 2px,
+   865→                2px calc(50% - 14px), 2px calc(50% - 14px),
+   866→                calc(50% - 14px) 2px, calc(50% - 14px) 2px,
+   867→                2px calc(50% - 14px), 2px calc(50% - 14px);
+   868→            background-position:
+   869→                9px 8px, calc(50% + 5px) 8px,
+   870→                8px 9px, calc(100% - 10px) 9px,
+   871→                9px calc(100% - 10px), calc(50% + 5px) calc(100% - 10px),
+   872→                8px calc(50% + 5px), calc(100% - 10px) calc(50% + 5px);
+   873→        }
+   874→        #memo-panel::after {
+   875→            content: '';
+   876→            position: absolute;
+   877→            inset: 0;
+   878→            pointer-events: none;
+   879→            background-image:
+   880→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   881→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   882→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f),
+   883→                linear-gradient(#1a1b2f, #1a1b2f), linear-gradient(#1a1b2f, #1a1b2f);
+   884→            background-repeat: no-repeat;
+   885→            background-size:
+   886→                9px 4px, 4px 9px,
+   887→                9px 4px, 4px 9px,
+   888→                9px 4px, 4px 9px,
+   889→                9px 4px, 4px 9px;
+   890→            background-position:
+   891→                left top, left top,
+   892→                right top, right top,
+   893→                left bottom, left bottom,
+   894→                right bottom, right bottom;
+   895→        }
+   896→        #memo-panel.no-bg {
+   897→            background-image: none !important;
+   898→            background-color: #111827;
+   899→        }
+   900→        #memo-title {
+   901→            color: #1a1b2f;
+   902→            font-size: 16px;
+   903→            font-weight: bold;
+   904→            margin-bottom: 6px;
+   905→            text-align: center;
+   906→            letter-spacing: 1px;
+   907→            flex-shrink: 0;
+   908→            position: relative;
+   909→            top: 15px;
+   910→        }
+   911→        #memo-date {
+   912→            color: #888;
+   913→            font-size: 10px;
+   914→            margin-bottom: 8px;
+   915→            text-align: right;
+   916→            flex-shrink: 0;
+   917→            position: relative;
+   918→            left: -40px; /* move date left by 40px */
+   919→            top: -10px;
+   920→        }
+   921→        #memo-content {
+   922→            color: #3b3b32;
+   923→            font-size: 12px;
+   924→            line-height: 1.8;
+   925→            white-space: pre-wrap;
+   926→            word-wrap: break-word;
+   927→            overflow-y: auto;
+   928→            flex-grow: 1;
+   929→            padding-right: 4px;
+   930→            position: relative;
+   931→            left: 100px; /* move content right by 100px */
+   932→            top: -10px;
+   933→        }
+   934→        #memo-content::-webkit-scrollbar {
+   935→            width: 6px;
+   936→        }
+   937→        #memo-content::-webkit-scrollbar-track {
+   938→            background: #1a1a2e;
+   939→        }
+   940→        #memo-content::-webkit-scrollbar-thumb {
+   941→            background: #444;
+   942→            border-radius: 3px;
+   943→        }
+   944→        #memo-placeholder {
+   945→            color: #666;
+   946→            font-style: italic;
+   947→            text-align: center;
+   948→            padding: 20px 0;
+   949→        }
+   950→        .memo-decoration {
+   951→            text-align: center;
+   952→            margin: 4px 0;
+   953→            color: #555;
+   954→            font-size: 10px;
+   955→            flex-shrink: 0;
+   956→        }
+   957→
+   958→        /* 手机端专属适配（不影响桌面） */
+   959→        @media (max-width: 900px), (pointer: coarse) {
+   960→            html, body {
+   961→                height: 100%;
+   962→            }
+   963→
+   964→            body {
+   965→                padding: 0;
+   966→                gap: 0;
+   967→                overflow-x: auto;
+   968→                overflow-y: auto;
+   969→                -webkit-overflow-scrolling: touch;
+   970→                align-items: stretch;
+   971→            }
+   972→
+   973→            #game-container {
+   974→                width: 100vw;
+   975→                height: 66.666vh; /* 办公室占 2/3 屏幕高度 */
+   976→                max-width: 100vw;
+   977→                max-height: 66.666vh;
+   978→                border-width: 0;
+   979→                border-radius: 0;
+   980→                aspect-ratio: auto;
+   981→                flex: 0 0 auto;
+   982→                touch-action: auto;
+   983→                overflow: hidden;
+   984→            }
+   985→
+   986→            #main-stage {
+   987→                width: 100vw;
+   988→                min-width: 0;
+   989→                margin-left: 0 !important;
+   990→            }
+   991→
+   992→            #bottom-panels {
+   993→                width: 100vw;
+   994→                max-width: 100vw;
+   995→                min-height: 33.334vh; /* 余下约 1/3 可见区 */
+   996→                padding: 10px 10px 16px;
+   997→                display: flex;
+   998→                flex-direction: column;
+   999→                gap: 10px;
+  1000→                flex: 0 0 auto;
+  1001→            }
+  1002→
+  1003→            body.drawer-open #main-stage {
+  1004→                margin-left: 0 !important;
+  1005→            }
+  1006→
+  1007→            #memo-panel,
+  1008→            #control-bar,
+  1009→            #guest-agent-panel {
+  1010→                width: 100%;
+  1011→                height: auto;
+  1012→                min-height: 180px;
+  1013→            }
+  1014→
+  1015→            #memo-panel { min-height: 220px; }
+  1016→            #control-bar { min-height: 210px; }
+  1017→            #guest-agent-panel { min-height: 220px; }
+  1018→
+  1019→            #memo-date {
+  1020→                left: 0;
+  1021→                text-align: left;
+  1022→                margin-bottom: 6px;
+  1023→            }
+  1024→            #memo-content {
+  1025→                left: 0;
+  1026→                font-size: 13px;
+  1027→                line-height: 1.7;
+  1028→            }
+  1029→
+  1030→            #control-bar-title,
+  1031→            #guest-agent-panel-title,
+  1032→            #memo-title {
+  1033→                font-size: 14px;
+  1034→            }
+  1035→
+  1036→            #control-buttons button,
+  1037→            #control-bar button,
+  1038→            .guest-agent-buttons button {
+  1039→                font-size: 12px;
+  1040→                min-height: 44px;
+  1041→            }
+  1042→            #control-buttons {
+  1043→                grid-template-columns: repeat(4, minmax(0, 1fr));
+  1044→                gap: 6px;
+  1045→            }
+  1046→            #control-buttons button {
+  1047→                min-height: 40px;
+  1048→                padding: 4px 2px;
+  1049→                font-size: 11px;
+  1050→            }
+  1051→
+  1052→            .guest-agent-item {
+  1053→                align-items: flex-start;
+  1054→                gap: 10px;
+  1055→                flex-direction: column;
+  1056→            }
+  1057→            .guest-agent-buttons {
+  1058→                width: 100%;
+  1059→                display: grid;
+  1060→                grid-template-columns: 1fr 1fr;
+  1061→                gap: 8px;
+  1062→            }
+  1063→
+  1064→            #status-text {
+  1065→                bottom: 8px;
+  1066→                left: 8px;
+  1067→                max-width: 64vw;
+  1068→                font-size: 12px;
+  1069→                padding: 8px 12px;
+  1070→            }
+  1071→
+  1072→            #coords-toggle,
+  1073→            #pan-toggle,
+  1074→            #lang-btn-en,
+  1075→            #lang-btn-jp,
+  1076→            #lang-btn-cn {
+  1077→                font-size: 12px !important;
+  1078→                padding: 6px 8px !important;
+  1079→            }
+  1080→
+  1081→            body.drawer-open {
+  1082→                overflow: hidden !important;
+  1083→                position: fixed;
+  1084→                width: 100%;
+  1085→                touch-action: none;
+  1086→            }
+  1087→
+  1088→            #asset-drawer {
+  1089→                width: 92vw;
+  1090→                max-width: 92vw;
+  1091→                height: 100vh;
+  1092→                height: 100dvh;
+  1093→            }
+  1094→            #asset-drawer-body {
+  1095→                padding: 8px;
+  1096→                -webkit-overflow-scrolling: touch;
+  1097→                overscroll-behavior: contain;
+  1098→            }
+  1099→            #asset-list {
+  1100→                display: flex;
+  1101→                flex-direction: column;
+  1102→                gap: 6px;
+  1103→            }
+  1104→            .asset-item {
+  1105→                grid-template-columns: 52px 1fr 36px;
+  1106→                padding: 6px;
+  1107→                gap: 6px;
+  1108→            }
+  1109→            .asset-thumb { width:52px; height:52px; }
+  1110→            .asset-path { font-size: 11px; line-height: 1.3; }
+  1111→            .asset-sub { font-size: 10px; }
+  1112→            #asset-upload-panel {
+  1113→                left: 8px;
+  1114→                right: 8px;
+  1115→                width: auto;
+  1116→                max-width: none;
+  1117→                bottom: 8px;
+  1118→                padding: 8px;
+  1119→            }
+  1120→            .asset-upload-grid {
+  1121→                gap: 6px;
+  1122→            }
+  1123→            #asset-upload-panel input {
+  1124→                min-width: 0;
+  1125→                flex: 1 1 42%;
+  1126→            }
+  1127→            #asset-upload-panel button {
+  1128→                min-height: 36px;
+  1129→            }
+  1130→        }
+  1131→    </style>
+  1132→</head>
+  1133→<body>
+  1134→    <!-- 加载遮罩 -->
+  1135→    <div id="loading-overlay">
+  1136→        <div id="loading-text">Loading Star’s pixel office...</div>
+  1137→        <div id="loading-progress-container">
+  1138→            <div id="loading-progress-bar"></div>
+  1139→        </div>
+  1140→    </div>
+  1141→    
+  1142→    <div id="main-stage">
+  1143→        <div id="game-container">
+  1144→            <div id="game-skeleton"><div class="hint">正在进入像素办公室…</div></div>
+  1145→            <div id="status-text">加载中...</div>
+  1146→        </div>
+  1147→    
+  1148→    <!-- 底部面板容器 -->
+  1149→    <div id="bottom-panels">
+  1150→        <!-- Memo 面板 -->
+  1151→        <div id="memo-panel">
+  1152→            <div id="memo-title">昨 日 小 记</div>
+  1153→            <div id="memo-date"></div>
+  1154→            <div class="memo-decoration">─ ─ ─ ─ ─</div>
+  1155→            <div id="memo-content">
+  1156→                <div id="memo-placeholder">加载中...</div>
+  1157→            </div>
+  1158→            <div class="memo-decoration">─ ─ ─ ─ ─</div>
+  1159→        </div>
+  1160→        
+  1161→        <!-- 状态控制栏 -->
+  1162→        <div id="control-bar">
+  1163→            <div id="control-bar-title">Star 状态</div>
+  1164→            <div id="control-buttons">
+  1165→                <button id="btn-state-idle" onclick="setState('idle','待命')">待命</button>
+  1166→                <button id="btn-state-writing" onclick="setState('writing','工作中')">工作</button>
+  1167→                <button id="btn-state-syncing" onclick="setState('syncing','同步中')">同步</button>
+  1168→                <button id="btn-state-error" onclick="setState('error','报警中')">报警</button>
+  1169→                <button id="btn-open-drawer" onclick="toggleAssetDrawer()">装修房间</button>
+  1170→            </div>
+  1171→        </div>
+  1172→
+  1173→        <!-- Guest Agent 名单面板（右下角） -->
+  1174→        <div id="guest-agent-panel">
+  1175→            <div id="guest-agent-panel-title">访 客 列 表</div>
+  1176→            <div id="guest-agent-list">
+  1177→                <div style="color:#9ca3af;font-size:12px;text-align:center;padding:20px 0;">正在加载访客...</div>
+  1178→            </div>
+  1179→            </div>
+  1180→        </div>
+  1181→    </div>
+  1182→    
+  1183→    <div id="asset-highlight"></div>
+  1184→    <div id="room-loading-overlay" aria-live="polite" aria-busy="true">
+  1185→        <div class="room-loading-inner">
+  1186→            <div id="room-loading-emoji">🦞</div>
+  1187→            <div id="room-loading-text">正在打包虾头……</div>
+  1188→        </div>
+  1189→    </div>
+  1190→
+  1191→    <div id="asset-drawer-backdrop" onclick="toggleAssetDrawer(false)"></div>
+  1192→    <aside id="asset-drawer">
+  1193→        <div id="asset-drawer-header">
+  1194→            <span>装修房间 · 资产侧边栏</span>
+  1195→            <button id="btn-close-drawer" onclick="toggleAssetDrawer(false)">关闭</button>
+  1196→        </div>
+  1197→        <div id="asset-drawer-body">
+  1198→            <div id="asset-auth-gate" class="asset-preview-box">
+  1199→                <div class="asset-preview-title">请输入装修验证码</div>
+  1200→                <div class="asset-toolbar">
+  1201→                    <input id="asset-pass-input" type="password" placeholder="输入验证码" />
+  1202→                    <button onclick="unlockAssetDrawer()">验证</button>
+  1203→                </div>
+  1204→                <div id="asset-auth-msg" class="asset-sub"></div>
+  1205→            </div>
+  1206→
+  1207→            <div id="asset-main-content" style="display:none;">
+  1208→                <div id="asset-move-panel">
+  1209→                    <div class="asset-toolbar" id="asset-move-row">
+  1210→                        <button id="btn-move-house" class="btn-move" onclick="generateRpgBackground()">📦 搬新家</button>
+  1211→                        <button id="btn-back-home" class="btn-home" onclick="restoreHomeBackground()">🐚 回老家</button>
+  1212→                    </div>
+  1213→                    <div class="asset-toolbar" id="asset-broker-row">
+  1214→                        <button class="btn-broker" onclick="toggleBrokerPanel()">🤝 找中介</button>
+  1215→                        <button id="btn-diy" class="btn-diy" onclick="toggleManualPanel()">🪚 自己装</button>
+  1216→                    </div>
+  1217→                    <div id="asset-move-result" class="asset-sub" style="margin-top:4px; margin-bottom:6px;"></div>
+  1218→                    <div id="asset-broker-panel">
+  1219→                        <div class="asset-sub" style="margin-bottom:6px;">写你的风格主题（严格保持原始房间结构，只改变视觉风格）</div>
+  1220→                        <textarea id="asset-broker-prompt" placeholder="例如：像素风赛博东京夜景，霓虹灯、雨夜地面反光、蓝紫主色"></textarea>
+  1221→                        <div class="asset-toolbar" style="margin-top:6px; gap:8px; align-items:center; justify-content:flex-start;">
+  1222→                            <span id="speed-mode-label" class="asset-sub" style="min-width:62px;">生成模式</span>
+  1223→                            <button id="speed-fast-btn" type="button" onclick="setSpeedMode('fast')" style="background:#22c55e;color:#052e16;border-color:#16a34a;">🍌2</button>
+  1224→                            <button id="speed-quality-btn" type="button" onclick="setSpeedMode('quality')" style="background:#334155;color:#e5e7eb;border-color:#475569;">🍌Pro</button>
+  1225→                        </div>
+  1226→                        <details id="asset-gemini-panel" style="margin-top:6px; border:0; border-top:1px solid rgba(148,163,184,.18); border-radius:0; padding:8px 0 0; background:transparent;">
+  1227→                            <summary id="gemini-panel-summary" style="cursor:pointer; color:#cbd5e1;">🔐 API 设置（可折叠）</summary>
+  1228→                            <div id="asset-gemini-config" style="display:block; margin-top:6px;">
+  1229→                                <div id="gemini-config-hint" class="asset-sub" style="margin-bottom:4px;">可选：填写你的生图 API Key（留空不影响基础功能）</div>
+  1230→                                <div class="asset-sub" style="margin-bottom:6px;"><a id="gemini-api-doc-link" href="https://ai.google.dev/gemini-api/docs/api-key?hl=zh-cn" target="_blank" rel="noopener noreferrer">📘 如何申请 Google API Key</a></div>
+  1231→                                <div id="gemini-mask-status" class="asset-sub" style="margin-bottom:6px; color:#a7f3d0;"></div>
+  1232→                                <div class="asset-toolbar" style="gap:6px; flex-wrap:wrap;">
+  1233→                                    <input id="gemini-api-key-input" type="password" placeholder="粘贴 GEMINI_API_KEY（不会回显）" style="min-width:220px; flex:1;" autocomplete="new-password" />
+  1234→                                    <button id="btn-save-gemini-key" onclick="saveGeminiConfigFromUI()">保存 Key</button>
+  1235→                                </div>
+  1236→                                <div id="gemini-config-msg" class="asset-sub" style="margin-top:4px;"></div>
+  1237→                            </div>
+  1238→                        </details>
+  1239→                        <div id="asset-broker-actions">
+  1240→                            <button onclick="generateCustomRpgBackground()">按中介方案搬家</button>
+  1241→                        </div>
+  1242→                    </div>
+  1243→                </div>
+  1244→
+  1245→                <div id="asset-home-actions-panel" class="asset-preview-box" style="margin-bottom:10px;">
+  1246→                    <div class="asset-toolbar" style="margin-bottom:6px; gap:8px;">
+  1247→                        <button id="btn-back-last-bg" class="btn-home" onclick="restoreLastGeneratedBackground()">↩️ 回上一个家</button>
+  1248→                        <button id="btn-favorite-home" class="btn-home" onclick="saveCurrentHomeFavorite()">⭐ 收藏这个家</button>
+  1249→                    </div>
+  1250→                    <details id="asset-home-favorites" style="margin:0;">
+  1251→                        <summary id="asset-home-favorites-title" class="asset-preview-title">🏠 收藏的家</summary>
+  1252→                        <div id="asset-home-favorites-list" class="home-fav-list"></div>
+  1253→                    </details>
+  1254→                </div>
+  1255→
+  1256→                <div id="asset-manual-panel" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+  1257→                    <div class="asset-toolbar">
+  1258→                        <input id="asset-search" placeholder="搜索资产名（如 desk / sofa / star）" oninput="renderAssetDrawerList()" />
+  1259→                    </div>
+  1260→                    <div id="asset-list"></div>
+  1261→                    <div id="asset-upload-panel">
+  1262→                        <input id="asset-upload-file" type="file" accept="image/*" style="display:none;" />
+  1263→                        <div class="asset-upload-grid" style="margin-top:0; margin-bottom:6px; gap:8px;">
+  1264→                            <button id="asset-choose-btn" onclick="openInlineAssetUploader()">上传素材</button>
+  1265→                            <button id="asset-commit-refresh-btn" onclick="commitAndRefresh()" disabled style="opacity:.55;">确认刷新</button>
+  1266→                            <button id="asset-reset-default-btn" onclick="resetSelectedAssetToDefault()" disabled style="opacity:.55;">重置默认</button>
+  1267→                            <button id="asset-restore-prev-btn" onclick="restoreSelectedAssetPrev()" disabled style="opacity:.55;">恢复上版</button>
+  1268→                        </div>
+  1269→                        <div id="asset-upload-result" class="asset-sub"></div>
+  1270→                    </div>
+  1271→                </div>
+  1272→            </div>
+  1273→        </div>
+  1274→    </aside>
+  1275→    <div id="coords-overlay" style="display:none; position:fixed; pointer-events:none; background:rgba(0,0,0,0.85); color:#fff; font-family:ArkPixel,monospace; font-size:14px; padding:8px 12px; border-radius:4px; z-index:99999;">
+  1276→        <div id="coords-display">X: 0 | Y: 0</div>
+  1277→    </div>
+  1278→    <button id="coords-toggle" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); right:12px; z-index:999999; padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">
+  1279→        显示坐标
+  1280→    </button>
+  1281→    <button id="pan-toggle" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 12px); left:12px; z-index:999999; padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">
+  1282→        移动视野
+  1283→    </button>
+  1284→    <div id="lang-toggle-group" style="position:fixed; top:calc(env(safe-area-inset-top, 0px) + 52px); left:12px; z-index:1000002; display:flex; gap:2px; align-items:center;">
+  1285→        <button id="lang-btn-en" onclick="setUILanguage('en')" style="padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">EN</button>
+  1286→        <button id="lang-btn-jp" onclick="setUILanguage('ja')" style="padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">JP</button>
+  1287→        <button id="lang-btn-cn" onclick="setUILanguage('zh')" style="padding:8px 10px; font-family:ArkPixel,monospace; font-size:13px; cursor:pointer; border:2px solid #333; border-radius:5px; background:#333; color:#fff;">CN</button>
+  1288→    </div>
+  1289→
+  1290→    <script src="/static/vendor/phaser-3.80.1.min.js?v={{VERSION_TIMESTAMP}}"></script>
+  1291→    <script>
+  1292→        // 简易中英文切换
+  1293→        let uiLang = localStorage.getItem('uiLang') || 'en';
+  1294→        const I18N = {
+  1295→            zh: {
+  1296→                controlTitle: 'Star 状态',
+  1297→                btnIdle: '待命', btnWork: '工作', btnSync: '同步', btnError: '报警', btnDecor: '装修房间',
+  1298→                drawerTitle: '装修房间 · 资产侧边栏', drawerClose: '关闭',
+  1299→                authTitle: '请输入装修验证码', authPlaceholder: '输入验证码', authVerify: '验证', authDefaultPassHint: '默认密码：1234（可随时让我帮你改，建议改成强密码）',
+  1300→                drawerVisibilityTip: '可见性：点击条目右侧眼睛按钮切换该资产显示',
+  1301→                hideDrawer: '👁 隐藏侧边栏', showDrawer: '👁 显示侧边栏',
+  1302→                assetHide: '隐藏', assetShow: '显示',
+  1303→                resetToDefault: '重置为默认资产', restorePrevAsset: '用上一版',
+  1304→                btnMove: '📦 搬新家', btnHome: '🐚 回老家', btnHomeLast: '↩️ 回上一个家', btnHomeFavorite: '⭐ 收藏这个家', btnBroker: '🤝 找中介', btnDIY: '🪚 自己装', btnBrokerGo: '听中介的',
+  1305→                homeFavTitle: '🏠 收藏的家', homeFavEmpty: '还没有收藏，先点“⭐ 收藏这个家”', homeFavApply: '替换到当前地图', homeFavDelete: '删除', homeFavSaved: '✅ 已收藏当前地图', homeFavApplied: '✅ 已替换为收藏地图', homeFavDeleted: '🗑️ 已删除收藏',
+  1306→                brokerHint: '你会给龙虾推荐什么样的房子',
+  1307→                brokerPromptPh: '例如：故宫主题、莫奈风格、地牢主题、兵马俑主题……',
+  1308→                brokerNeedPrompt: '请先输入中介方案描述',
+  1309→                brokerGenerating: '🏘️ 正在按中介方案生成底图，请稍候（约20-90秒）...',
+  1310→                brokerDone: '✅ 已按中介方案生成并替换底图，正在刷新房间...',
+  1311→                moveSuccess: '✅ 搬家成功！',
+  1312→                brokerMissingKey: '❌ 生图失败：缺少 GEMINI API Key，请在下方填写并保存后重试',
+  1313→                geminiPanelTitle: '🔐 API 设置（可折叠）', geminiHint: '可选：填写你的生图 API Key（留空不影响基础功能）', geminiApiDoc: '📘 如何申请 Google API Key', geminiInputPh: '粘贴 GEMINI_API_KEY（不会回显）', geminiSaveKey: '保存 Key', geminiMaskNoKey: '当前状态：未配置 Key', geminiMaskHasKey: '当前已配置：',
+  1314→                speedModeLabel: '生成模式', speedFast: '🍌2', speedQuality: '🍌Pro',
+  1315→                searchPlaceholder: '搜索资产名（如 desk / sofa / star）', loaded: '已加载', allAssets: '全部资产',
+  1316→                chooseImage: '上传素材', confirmUpload: '确认刷新', resetToDefault: '重置默认', restorePrevAsset: '恢复上版', uploadPending: '待上传', uploadTarget: '目标',
+  1317→                assetHintNotInScene: '当前场景未检测到此对象，仍可替换文件（刷新后生效）',
+  1318→                assetHintDefault: '通用素材：建议保持原图尺寸、透明通道与视觉重心一致，避免错位或失真',
+  1319→                showCoords: '显示坐标', hideCoords: '隐藏坐标', moveView: '移动视野', lockView: '锁定视野',
+  1320→                memoTitle: '昨 日 小 记', guestTitle: '访 客 列 表', officeTitle: '海辛小龙虾的办公室',
+  1321→                loadingOffice: '正在加载 Star 的像素办公室...'
+  1322→            },
+  1323→            en: {
+  1324→                controlTitle: 'Star Status',
+  1325→                btnIdle: 'Idle', btnWork: 'Work', btnSync: 'Sync', btnError: 'Alert', btnDecor: 'Decorate Room',
+  1326→                drawerTitle: 'Decorate Room · Asset Sidebar', drawerClose: 'Close',
+  1327→                authTitle: 'Enter Decor Passcode', authPlaceholder: 'Enter passcode', authVerify: 'Verify', authDefaultPassHint: 'Default passcode: 1234 (ask me anytime to change it; stronger passcode recommended)',
+  1328→                drawerVisibilityTip: 'Visibility: use the eye button on each row to hide/show that asset',
+  1329→                hideDrawer: '👁 Hide Drawer', showDrawer: '👁 Show Drawer',
+  1330→                assetHide: 'Hide', assetShow: 'Show',
+  1331→                resetToDefault: 'Reset to Default', restorePrevAsset: 'Use Previous',
+  1332→                btnMove: '📦 New Home', btnHome: '🐚 Go Home', btnHomeLast: '↩️ Last One', btnHomeFavorite: '⭐ Save This Home', btnBroker: '🤝 Broker', btnDIY: '🪚 DIY', btnBrokerGo: 'Follow Broker',
+  1333→                homeFavTitle: '🏠 Saved Homes', homeFavEmpty: 'No saved homes yet. Tap “⭐ Save This Home” first.', homeFavApply: 'Apply to Current Map', homeFavDelete: 'Delete', homeFavSaved: '✅ Current map saved', homeFavApplied: '✅ Applied saved home', homeFavDeleted: '🗑️ Saved home deleted',
+  1334→                brokerHint: 'What kind of house would you recommend for Lobster?',
+  1335→                brokerPromptPh: 'e.g. Forbidden City theme, Monet style, dungeon theme, Terracotta Warriors theme...',
+  1336→                brokerNeedPrompt: 'Please enter broker style prompt first',
+  1337→                brokerGenerating: '🏘️ Generating room background from broker plan, please wait (20-90s)...',
+  1338→                brokerDone: '✅ Broker plan applied and background replaced, refreshing room...',
+  1339→                moveSuccess: '✅ Move successful!',
+  1340→                brokerMissingKey: '❌ Generation failed: missing GEMINI API key. Fill it below and retry.',
+  1341→                geminiPanelTitle: '🔐 API Settings (collapsible)', geminiHint: 'Optional: set your image API key (base features work without it)', geminiApiDoc: '📘 How to get a Google API Key', geminiInputPh: 'Paste GEMINI_API_KEY (input hidden)', geminiSaveKey: 'Save Key', geminiMaskNoKey: 'Current: no key configured', geminiMaskHasKey: 'Configured key:',
+  1342→                speedModeLabel: 'Render Mode', speedFast: '🍌2', speedQuality: '🍌Pro',
+  1343→                searchPlaceholder: 'Search assets (desk / sofa / star)', loaded: 'Loaded', allAssets: 'All Assets',
+  1344→                chooseImage: 'Upload Asset', confirmUpload: 'Apply Refresh', resetToDefault: 'Reset Default', restorePrevAsset: 'Restore Prev', uploadPending: 'Pending Upload', uploadTarget: 'Target',
+  1345→                assetHintNotInScene: 'This object is not detected in current scene; you can still replace file (effective after refresh)',
+  1346→                assetHintDefault: 'Generic asset: keep source size, alpha channel, and visual anchor to avoid drift/distortion',
+  1347→                showCoords: 'Show Coords', hideCoords: 'Hide Coords', moveView: 'Pan View', lockView: 'Lock View',
+  1348→                memoTitle: 'YESTERDAY NOTES', guestTitle: 'VISITOR LIST', officeTitle: 'Haixin Lobster Office',
+  1349→                loadingOffice: 'Loading Star’s pixel office...'
+  1350→            },
+  1351→            ja: {
+  1352→                controlTitle: 'Star ステータス',
+  1353→                btnIdle: '待機', btnWork: '作業', btnSync: '同期', btnError: '警報', btnDecor: '部屋を編集',
+  1354→                drawerTitle: '部屋編集・アセットサイドバー', drawerClose: '閉じる',
+  1355→                authTitle: '編集パスコードを入力', authPlaceholder: 'パスコード入力', authVerify: '認証', authDefaultPassHint: '初期パスコード：1234（いつでも変更を相談可。強固なパス推奨）',
+  1356→                drawerVisibilityTip: '表示切替：各行右側の目ボタンで資産を表示/非表示',
+  1357→                hideDrawer: '👁 サイドバーを隠す', showDrawer: '👁 サイドバーを表示',
+  1358→                assetHide: '非表示', assetShow: '表示',
+  1359→                resetToDefault: 'デフォルトへ戻す', restorePrevAsset: '前の版へ戻す',
+  1360→                btnMove: '📦 引っ越し', btnHome: '🐚 実家に戻る', btnHomeLast: '↩️ ひとつ前へ', btnHomeFavorite: '⭐ この家を保存', btnBroker: '🤝 仲介', btnDIY: '🪚 自分で装飾', btnBrokerGo: '仲介に任せる',
+  1361→                homeFavTitle: '🏠 保存した家', homeFavEmpty: 'まだ保存がありません。先に「⭐ この家を保存」を押してください。', homeFavApply: '現在のマップに適用', homeFavDelete: '削除', homeFavSaved: '✅ 現在のマップを保存しました', homeFavApplied: '✅ 保存した家を適用しました', homeFavDeleted: '🗑️ 保存した家を削除しました',
+  1362→                brokerHint: 'ロブスターにはどんな家をおすすめしますか',
+  1363→                brokerPromptPh: '例：故宮テーマ、モネ風、ダンジョン風、兵馬俑テーマ…',
+  1364→                brokerNeedPrompt: '先に仲介プランの説明を入力してください',
+  1365→                brokerGenerating: '🏘️ 仲介プランで背景を生成中（20〜90秒）...',
+  1366→                brokerDone: '✅ 仲介プランを適用して背景を更新しました。部屋を更新中...',
+  1367→                moveSuccess: '✅ 引っ越し成功！',
+  1368→                brokerMissingKey: '❌ 生成失敗：GEMINI APIキーが未設定です。下で入力して保存してください。',
+  1369→                geminiPanelTitle: '🔐 API設定（折りたたみ）', geminiHint: '任意：画像生成APIキーを設定（未設定でも基本機能は利用可）', geminiApiDoc: '📘 Google API Keyの取得方法', geminiInputPh: 'GEMINI_API_KEY を貼り付け（入力は非表示）', geminiSaveKey: 'Keyを保存', geminiMaskNoKey: '現在：キー未設定', geminiMaskHasKey: '設定済みキー：',
+  1370→                speedModeLabel: '生成モード', speedFast: '🍌2', speedQuality: '🍌Pro',
+  1371→                searchPlaceholder: 'アセット検索（desk / sofa / star）', loaded: '読み込み済み', allAssets: '全アセット',
+  1372→                chooseImage: '素材アップロード', confirmUpload: '確定して更新', resetToDefault: '初期に戻す', restorePrevAsset: '前版に戻す', uploadPending: 'アップロード待ち', uploadTarget: '対象',
+  1373→                assetHintNotInScene: '現在のシーンでこのオブジェクトは未検出です。ファイル差し替えは可能（更新後に反映）',
+  1374→                assetHintDefault: '汎用素材：元サイズ・透過・視覚アンカーを維持し、ズレや崩れを防いでください',
+  1375→                showCoords: '座標表示', hideCoords: '座標非表示', moveView: '視点移動', lockView: '視点固定',
+  1376→                memoTitle: '昨日のメモ', guestTitle: '訪問者リスト', officeTitle: 'ハイシン・ロブスターのオフィス',
+  1377→                loadingOffice: 'Star のピクセルオフィスを読み込み中...'
+  1378→            }
+  1379→        };
+  1380→
+  1381→        function t(key) { return (I18N[uiLang] && I18N[uiLang][key]) || key; }
+  1382→        function renderBootLoadingText(percent) {
+  1383→            const loadingEl = document.getElementById('loading-text');
+  1384→            if (!loadingEl) return;
+  1385→            const base = t('loadingOffice');
+  1386→            const p = Number.isFinite(percent) ? ` ${Math.max(0, Math.min(100, Math.round(percent)))}%` : '';
+  1387→            loadingEl.textContent = `${base}${p}`;
+  1388→        }
+  1389→
+  1390→        function ensureMemoBgVisible() {
+  1391→            const panel = document.getElementById('memo-panel');
+  1392→            if (!panel) return;
+  1393→            panel.style.backgroundImage = "url('/static/memo-bg.webp?v={{VERSION_TIMESTAMP}}')";
+  1394→            panel.classList.remove('no-bg');
+  1395→        }
+  1396→
+  1397→        function applyLanguage() {
+  1398→            const setText = (id, key) => { const el = document.getElementById(id); if (el) el.textContent = t(key); };
+  1399→            const setPh = (id, key) => { const el = document.getElementById(id); if (el) el.placeholder = t(key); };
+  1400→
+  1401→            setText('control-bar-title', 'controlTitle');
+  1402→            setText('btn-state-idle', 'btnIdle');
+  1403→            setText('btn-state-writing', 'btnWork');
+  1404→            setText('btn-state-syncing', 'btnSync');
+  1405→            setText('btn-state-error', 'btnError');
+  1406→            setText('btn-open-drawer', 'btnDecor');
+  1407→            const langButtons = [
+  1408→                { id: 'lang-btn-en', lang: 'en' },
+  1409→                { id: 'lang-btn-jp', lang: 'ja' },
+  1410→                { id: 'lang-btn-cn', lang: 'zh' }
+  1411→            ];
+  1412→            langButtons.forEach(({ id, lang }) => {
+  1413→                const el = document.getElementById(id);
+  1414→                if (!el) return;
+  1415→                const active = (uiLang === lang);
+  1416→                el.style.background = active ? '#22c55e' : '#333';
+  1417→                el.style.borderColor = active ? '#22c55e' : '#333';
+  1418→                el.style.color = '#fff';
+  1419→            });
+  1420→
+  1421→            const drawerTitle = document.querySelector('#asset-drawer-header span');
+  1422→            if (drawerTitle) drawerTitle.textContent = t('drawerTitle');
+  1423→            const drawerClose = document.getElementById('btn-close-drawer');
+  1424→            if (drawerClose) drawerClose.textContent = t('drawerClose');
+  1425→
+  1426→            const authTitle = document.querySelector('#asset-auth-gate .asset-preview-title');
+  1427→            if (authTitle) authTitle.textContent = t('authTitle');
+  1428→            setPh('asset-pass-input', 'authPlaceholder');
+  1429→            const authVerifyBtn = document.querySelector('#asset-auth-gate .asset-toolbar button');
+  1430→            if (authVerifyBtn) authVerifyBtn.textContent = t('authVerify');
+  1431→
+  1432→            setText('btn-move-house', 'btnMove');
+  1433→            setText('btn-back-home', 'btnHome');
+  1434→            const brokerBtn = document.querySelector('#asset-broker-row .btn-broker'); if (brokerBtn) brokerBtn.textContent = t('btnBroker');
+  1435→            const diyBtn = document.querySelector('#asset-broker-row .btn-diy'); if (diyBtn) diyBtn.textContent = t('btnDIY');
+  1436→            const backLastBtn = document.getElementById('btn-back-last-bg'); if (backLastBtn) backLastBtn.textContent = t('btnHomeLast');
+  1437→            const favHomeBtn = document.getElementById('btn-favorite-home'); if (favHomeBtn) favHomeBtn.textContent = t('btnHomeFavorite');
+  1438→            const favTitle = document.getElementById('asset-home-favorites-title'); if (favTitle) favTitle.textContent = t('homeFavTitle');
+  1439→            const brokerHint = document.querySelector('#asset-broker-panel .asset-sub'); if (brokerHint) brokerHint.textContent = t('brokerHint');
+  1440→            const brokerPrompt = document.getElementById('asset-broker-prompt'); if (brokerPrompt) brokerPrompt.placeholder = t('brokerPromptPh');
+  1441→            const brokerGoBtn = document.querySelector('#asset-broker-actions button'); if (brokerGoBtn) brokerGoBtn.textContent = t('btnBrokerGo');
+  1442→            const speedLbl = document.getElementById('speed-mode-label'); if (speedLbl) speedLbl.textContent = t('speedModeLabel');
+  1443→            const speedFastBtn = document.getElementById('speed-fast-btn'); if (speedFastBtn) speedFastBtn.textContent = t('speedFast');
+  1444→            const speedQualityBtn = document.getElementById('speed-quality-btn'); if (speedQualityBtn) speedQualityBtn.textContent = t('speedQuality');
+  1445→            const geminiPanelSummary = document.getElementById('gemini-panel-summary'); if (geminiPanelSummary) geminiPanelSummary.textContent = t('geminiPanelTitle');
+  1446→            const geminiHint = document.getElementById('gemini-config-hint'); if (geminiHint) geminiHint.textContent = t('geminiHint');
+  1447→            const geminiDocLink = document.getElementById('gemini-api-doc-link'); if (geminiDocLink) geminiDocLink.textContent = t('geminiApiDoc');
+  1448→            const geminiInput = document.getElementById('gemini-api-key-input'); if (geminiInput) geminiInput.placeholder = t('geminiInputPh');
+  1449→            const geminiSaveBtn = document.getElementById('btn-save-gemini-key'); if (geminiSaveBtn) geminiSaveBtn.textContent = t('geminiSaveKey');
+  1450→
+  1451→            setPh('asset-search', 'searchPlaceholder');
+  1452→
+  1453→            setText('asset-choose-btn', 'chooseImage');
+  1454→            setText('asset-commit-refresh-btn', 'confirmUpload');
+  1455→            setText('asset-reset-default-btn', 'resetToDefault');
+  1456→            setText('asset-restore-prev-btn', 'restorePrevAsset');
+  1457→
+  1458→            const memoTitle = document.getElementById('memo-title');
+  1459→            if (memoTitle) memoTitle.textContent = t('memoTitle');
+  1460→            const guestTitle = document.getElementById('guest-agent-panel-title');
+  1461→            if (guestTitle) guestTitle.textContent = t('guestTitle');
+  1462→            const plaqueTitle = (typeof window.officeNameFromServer !== 'undefined' && window.officeNameFromServer) || t('officeTitle');
+  1463→            if (window.officePlaqueText && window.officePlaqueText.setText) {
+  1464→                window.officePlaqueText.setText(plaqueTitle);
+  1465→            }
+  1466→
+  1467→            const coordsBtn = document.getElementById('coords-toggle');
+  1468→            if (coordsBtn) coordsBtn.textContent = showCoords ? t('hideCoords') : t('showCoords');
+  1469→            const panBtn = document.getElementById('pan-toggle');
+  1470→            if (panBtn) {
+  1471→                const on = panBtn.dataset.on === '1';
+  1472→                panBtn.textContent = on ? t('lockView') : t('moveView');
+  1473→            }
+  1474→            ensureMemoBgVisible();
+  1475→            renderBootLoadingText(Number(loadingProgressBar?.style?.width?.replace('%','') || 0));
+  1476→        }
+  1477→
+  1478→        function setUILanguage(lang) {
+  1479→            if (!['zh', 'en', 'ja'].includes(lang)) return;
+  1480→            uiLang = lang;
+  1481→            localStorage.setItem('uiLang', uiLang);
+  1482→            applyLanguage();
+  1483→            updateSpeedModeUI();
+  1484→
+  1485→            // 语言切换后立即重绘资产侧栏，确保易懂名同步更新
+  1486→            renderAssetDrawerList();
+  1487→
+  1488→            // 语言切换后同步刷新已选资产的指导文案（上传区小字三语联动）
+  1489→            if (selectedAssetInfo && selectedAssetInfo.path) {
+  1490→                const inScene = !!mapAssetPathToSprite(selectedAssetInfo.path);
+  1491→                renderSelectedAssetGuidance(selectedAssetInfo.path, inScene);
+  1492→            }
+  1493→
+  1494→            // 语言切换时，当前正在显示的 loading 文案也实时切换
+  1495→            const overlay = document.getElementById('room-loading-overlay');
+  1496→            if (overlay && overlay.style.display === 'flex') {
+  1497→                showRoomLoadingOverlay();
+  1498→            }
+  1499→        }
+  1500→
+  1501→        // 检测浏览器是否支持 WebP
+  1502→        let supportsWebP = false;
+  1503→        
+  1504→        // 方法 1: 使用 canvas 检测
+  1505→        function checkWebPSupport() {
+  1506→            return new Promise((resolve) => {
+  1507→                const canvas = document.createElement('canvas');
+  1508→                if (canvas.getContext && canvas.getContext('2d')) {
+  1509→                    resolve(canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0);
+  1510→                } else {
+  1511→                    resolve(false);
+  1512→                }
+  1513→            });
+  1514→        }
+  1515→        
+  1516→        // 方法 2: 使用 image 检测（备用）
+  1517→        function checkWebPSupportFallback() {
+  1518→            return new Promise((resolve) => {
+  1519→                const img = new Image();
+  1520→                img.onload = () => resolve(true);
+  1521→                img.onerror = () => resolve(false);
+  1522→                img.src = 'data:image/webp;base64,UklGRkoAAABXRUJQVlA4WAoAAAAQAAAAAAAAAAAAQUxQSAwAAAABBxAR/Q9ERP8DAABWUDggGAAAADABAJ0BKgEAAQADADQlpAADcAD++/1QAA==';
+  1523→            });
+  1524→        }
+  1525→
+  1526→        const IS_TOUCH_DEVICE = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || window.matchMedia('(pointer: coarse)').matches;
+  1527→
+  1528→        const config = {
+  1529→            type: Phaser.AUTO,
+  1530→            width: 1280,
+  1531→            height: 720,
+  1532→            parent: 'game-container',
+  1533→            pixelArt: true,
+  1534→            // 桌面端保持 FIT；手机端用 RESIZE，并在相机里按高度做 fit（可横向 pan）
+  1535→            scale: {
+  1536→                mode: IS_TOUCH_DEVICE ? Phaser.Scale.RESIZE : Phaser.Scale.FIT,
+  1537→                autoCenter: Phaser.Scale.CENTER_BOTH,
+  1538→                width: 1280,
+  1539→                height: 720
+  1540→            },
+  1541→            physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+  1542→            scene: { preload: preload, create: create, update: update }
+  1543→        };
+  1544→
+  1545→        let totalAssets = 0;
+  1546→        let loadedAssets = 0;
+  1547→        let loadingProgressBar, loadingProgressContainer, loadingOverlay, loadingText;
+  1548→
+  1549→        // Memo 相关函数
+  1550→        async function loadMemo() {
+  1551→            const memoDate = document.getElementById('memo-date');
+  1552→            const memoContent = document.getElementById('memo-content');
+  1553→            
+  1554→            try {
+  1555→                const response = await fetch('/yesterday-memo?t=' + Date.now(), { cache: 'no-store' });
+  1556→                const data = await response.json();
+  1557→                
+  1558→                if (data.success && data.memo) {
+  1559→                    memoDate.textContent = data.date || '';
+  1560→                    memoContent.innerHTML = data.memo.replace(/\n/g, '<br>');
+  1561→                } else {
+  1562→                    memoContent.innerHTML = '<div id="memo-placeholder">暂无昨日日记</div>';
+  1563→                }
+  1564→            } catch (e) {
+  1565→                console.error('加载 memo 失败:', e);
+  1566→                memoContent.innerHTML = '<div id="memo-placeholder">加载失败</div>';
+  1567→            }
+  1568→        }
+  1569→
+  1570→        // 更新加载进度
+  1571→        function updateLoadingProgress() {
+  1572→            loadedAssets++;
+  1573→            const percent = Math.min(100, Math.round((loadedAssets / totalAssets) * 100));
+  1574→            if (loadingProgressBar) {
+  1575→                loadingProgressBar.style.width = percent + '%';
+  1576→            }
+  1577→            if (loadingText) {
+  1578→                renderBootLoadingText(percent);
+  1579→            }
+  1580→        }
+  1581→
+  1582→        // 隐藏加载界面
+  1583→        function hideLoadingOverlay() {
+  1584→            setTimeout(() => {
+  1585→                if (loadingOverlay) {
+  1586→                    loadingOverlay.style.transition = 'opacity 0.35s ease';
+  1587→                    loadingOverlay.style.opacity = '0';
+  1588→                    setTimeout(() => {
+  1589→                        loadingOverlay.style.display = 'none';
+  1590→                    }, 360);
+  1591→                }
+  1592→            }, 80);
+  1593→        }
+  1594→
+  1595→        // Phaser 就绪后，移除首屏骨架，避免黑屏感
+  1596→        function hideGameSkeleton() {
+  1597→            const sk = document.getElementById('game-skeleton');
+  1598→            if (!sk) return;
+  1599→            sk.style.transition = 'opacity 0.25s ease';
+  1600→            sk.style.opacity = '0';
+  1601→            setTimeout(() => {
+  1602→                if (sk && sk.parentNode) sk.parentNode.removeChild(sk);
+  1603→            }, 260);
+  1604→        }
+  1605→
+  1606→        // 兜底：某些移动网络/CDN 抖动时，避免一直卡在“加载中”遮罩
+  1607→        setTimeout(() => {
+  1608→            if (loadingOverlay && loadingOverlay.style.display !== 'none') {
+  1609→                hideLoadingOverlay();
+  1610→            }
+  1611→        }, 8000);
+  1612→        
+  1613→        // 懒加载逻辑已取消（体验优先：装饰首屏直接出现）
+  1614→
+  1615→        const STATES = {
+  1616→            idle: { name: '待命', area: 'breakroom' },
+  1617→            writing: { name: '整理文档', area: 'writing' },
+  1618→            researching: { name: '搜索信息', area: 'researching' },
+  1619→            executing: { name: '执行任务', area: 'writing' },
+  1620→            syncing: { name: '同步备份', area: 'writing' },
+  1621→            error: { name: '出错了', area: 'error' }
+  1622→        };
+  1623→
+  1624→        const BUBBLE_TEXTS = {
+  1625→            zh: {
+  1626→                idle: ['待命中：耳朵竖起来了','我在这儿，随时可以开工','先把桌面收拾干净再说','呼——给大脑放个风','今天也要优雅地高效','等待，是为了更准确的一击','咖啡还热，灵感也还在','我在后台给你加 Buff','状态：静心 / 充电','小猫说：慢一点也没关系'],
+  1627→                writing: ['进入专注模式：勿扰','先把关键路径跑通','我来把复杂变简单','把 bug 关进笼子里','写到一半，先保存','把每一步都做成可回滚','今天的进度，明天的底气','先收敛，再发散','让系统变得更可解释','稳住，我们能赢'],
+  1628→                researching: ['我在挖证据链','让我把信息熬成结论','找到了：关键在这里','先把变量控制住','我在查：它为什么会这样','把直觉写成验证','先定位，再优化','别急，先画因果图'],
+  1629→                executing: ['执行中：不要眨眼','把任务切成小块逐个击破','开始跑 pipeline','一键推进：走你','让结果自己说话','先做最小可行，再做最美版本'],
+  1630→                syncing: ['同步中：把今天锁进云里','备份不是仪式，是安全感','写入中…别断电','把变更交给时间戳','云端对齐：咔哒','同步完成前先别乱动','把未来的自己从灾难里救出来','多一份备份，少一份后悔'],
+  1631→                error: ['警报响了：先别慌','我闻到 bug 的味道了','先复现，再谈修复','把日志给我，我会说人话','错误不是敌人，是线索','把影响面圈起来','先止血，再手术','我在：马上定位根因','别怕，这种我见多了','报警中：让问题自己现形'],
+  1632→                cat: ['喵~','咕噜咕噜…','尾巴摇一摇','晒太阳最开心','有人来看我啦','我是这个办公室的吉祥物','伸个懒腰','今天的罐罐准备好了吗','呼噜呼噜','这个位置视野最好']
+  1633→            },
+  1634→            en: {
+  1635→                idle: ['On standby: ears up.','I’m here, ready to roll.','Let’s tidy the desk first.','Taking a quick brain breeze.','Efficient and elegant, as always.','Waiting for a more precise strike.','Coffee is warm, ideas too.','Giving you a quiet backstage buff.','Status: calm / charging.','Cat says: no rush, we’re good.'],
+  1636→                writing: ['Focus mode on: do not disturb.','Let’s clear the critical path first.','I’ll make the complex simple.','Putting bugs in a cage.','Save first, then continue.','Every step should be rollback-safe.','Today’s progress is tomorrow’s confidence.','Converge first, then diverge.','Making the system more explainable.','Steady—this is winnable.'],
+  1637→                researching: ['Digging the evidence chain.','Let me boil info into conclusions.','Found it: key clue here.','Control variables first.','Checking why this happens.','Turn intuition into verification.','Locate first, optimize next.','No rush—draw the causality map first.'],
+  1638→                executing: ['Executing—don’t blink.','Split tasks, conquer one by one.','Pipeline is running.','One-click push: go go.','Let the results speak.','Build MVP first, then craft beauty.'],
+  1639→                syncing: ['Syncing: lock today into the cloud.','Backup is safety, not ceremony.','Writing… don’t cut power.','Handing changes to timestamps.','Cloud alignment: click.','Don’t shake it before sync finishes.','Saving future-us from disasters.','One more backup, one less regret.'],
+  1640→                error: ['Alarm on—stay calm.','I can smell a bug.','Reproduce first, then fix.','Give me logs; I’ll translate.','Errors are clues, not enemies.','Circle the impact area first.','Stop the bleeding, then surgery.','On it: tracing root cause now.','Don’t worry, seen this many times.','Alert mode: make the issue reveal itself.'],
+  1641→                cat: ['Meow~','Purr purr…','Tail wiggle activated.','Sunbathing is the best.','Someone came to see me!','I’m the office mascot.','Big stretch~','Is today’s snack ready yet?','Rrrrr purr…','Best view spot secured.']
+  1642→            },
+  1643→            ja: {
+  1644→                idle: ['待機中：耳はピン。','ここにいるよ、いつでも開始OK。','まず机を整えよう。','ふー、頭に風を通す。','今日も上品に高効率で。','待つのは、より正確な一撃のため。','コーヒーも発想もまだ温かい。','裏側でそっとバフ中。','状態：静心 / 充電。','猫より：ゆっくりでも大丈夫。'],
+  1645→                writing: ['集中モード：お静かに。','まずはクリティカルパスを通す。','複雑をシンプルにする。','バグはケージへ。','途中でもまず保存。','すべてをロールバック可能に。','今日の進捗は明日の自信。','まず収束、次に発散。','システムをより説明可能に。','落ち着いて、勝てる。'],
+  1646→                researching: ['証拠チェーンを掘っています。','情報を結論まで煮詰めます。','見つけた：鍵はここ。','まず変数を制御。','なぜこうなるか調査中。','直感を検証へ。','先に特定、次に最適化。','急がず因果マップから。'],
+  1647→                executing: ['実行中：まばたき厳禁。','タスクを分割して各個撃破。','パイプライン起動。','ワンクリック前進：いくぞ。','結果に語らせる。','まず最小実用、次に美しさ。'],
+  1648→                syncing: ['同期中：今日をクラウドに封印。','バックアップは儀式じゃなく安心。','書き込み中…電源オフ厳禁。','変更はタイムスタンプへ。','クラウド整列：カチッ。','同期完了まで触らないで。','未来の自分を災害から救う。','バックアップ一つ、後悔一つ減る。'],
+  1649→                error: ['警報：まず落ち着いて。','バグの気配を感じる。','再現してから修正へ。','ログをください、人語にします。','エラーは敵ではなく手がかり。','まず影響範囲を囲う。','止血してから手術。','今すぐ根因を追跡中。','大丈夫、よくある案件。','警戒モード：問題を可視化する。'],
+  1650→                cat: ['ニャー','ゴロゴロ…','しっぽフリフリ。','ひなたぼっこ最高。','見に来てくれた！','このオフィスのマスコットです。','ぐーっと伸び。','今日のおやつ、準備できた？','ゴロゴロ。','ここ、いちばん見晴らしがいい。']
+  1651→            }
+  1652→        };
+  1653→
+  1654→        let game, star, sofa, serverroom, officeBgSprite, areas = {}, currentState = 'idle', pendingDesiredState = null, statusText, lastFetch = 0, lastBlink = 0, lastBubble = 0, targetX = 660, targetY = 170, bubble = null, typewriterText = '', typewriterTarget = '', typewriterIndex = 0, lastTypewriter = 0, syncAnimSprite = null, syncAnimPlayable = false, catBubble = null, selectionBoxGraphics = null;
+  1655→        const IDLE_SOFA_ANCHOR = { x: 798, y: 272 }; // 统一中心锚点（原 sofa 左上 670,144 的中心）
+  1656→        const IDLE_STAR_SCALE = 1.0; // star idle 改为256帧原生显示，不再放大
+  1657→        // flowers 精灵表规格：固定单帧 128x128，4x4
+  1658→        let FLOWERS_FRAME_W = 65;
+  1659→        let FLOWERS_FRAME_H = 65;
+  1660→        let FLOWERS_FRAME_COLS = 4;
+  1661→        let FLOWERS_FRAME_ROWS = 4;
+  1662→        let currentOfficeBgTextureKey = 'office_bg';
+  1663→        let assetDrawerOpen = false;
+  1664→        let assetDrawerAuthed = false;
+  1665→        let assetManualPanelOpen = false;
+  1666→        let assetFilterMode = 'all';
+  1667→        let assetListData = [];
+  1668→        let sceneAssetItems = [];
+  1669→        let selectedAssetInfo = null;
+  1670→        let hiddenAssetPaths = new Set();
+  1671→        let assetThumbTimers = [];
+  1672→        let homeFavoritesCache = [];
+  1673→        let homeFavoritesLoadedAt = 0;
+  1674→
+  1675→        // 坐标以服务端为准；清理历史本地缓存，避免把素材挪飞
+  1676→        let assetPositionOverrides = {};
+  1677→        let roomLoadingTimer = null;
+  1678→        let roomLoadingIndex = 0;
+  1679→        let roomLoadingEmojiIndex = 0;
+  1680→
+  1681→        // 默认走更稳的模型档（quality），避免部分通道不支持 fast 模型时报错
+  1682→        let speedMode = localStorage.getItem('speedMode') || 'quality';
+  1683→        function setSpeedMode(mode) {
+  1684→            speedMode = (mode === 'quality') ? 'quality' : 'fast';
+  1685→            try { localStorage.setItem('speedMode', speedMode); } catch(e) {}
+  1686→            updateSpeedModeUI();
+  1687→        }
+  1688→        function updateSpeedModeUI() {
+  1689→            const fastBtn = document.getElementById('speed-fast-btn');
+  1690→            const qBtn = document.getElementById('speed-quality-btn');
+  1691→            if (!fastBtn || !qBtn) return;
+  1692→            const fastOn = speedMode === 'fast';
+  1693→            fastBtn.style.background = fastOn ? '#22c55e' : '#334155';
+  1694→            fastBtn.style.color = fastOn ? '#052e16' : '#e5e7eb';
+  1695→            fastBtn.style.borderColor = fastOn ? '#16a34a' : '#475569';
+  1696→            qBtn.style.background = fastOn ? '#334155' : '#22c55e';
+  1697→            qBtn.style.color = fastOn ? '#e5e7eb' : '#052e16';
+  1698→            qBtn.style.borderColor = fastOn ? '#475569' : '#16a34a';
+  1699→        }
+  1700→        try { localStorage.removeItem('assetPositionOverrides'); } catch (e) {}
+  1701→        let isMoving = false;
+  1702→        let waypoints = []; // list of (x,y) to walk through in order
+  1703→        let lastWanderAt = 0;
+  1704→
+  1705→        let coordsOverlay, coordsDisplay, coordsToggle;
+  1706→        let showCoords = false;
+  1707→        let guestAgents = [];
+  1708→        let guestSprites = {}; // agentId -> {sprite, nameText}
+  1709→        let guestBubbles = {}; // agentId -> bubble container
+  1710→        const GUEST_AVATARS = ['guest_role_1','guest_role_2','guest_role_3','guest_role_4','guest_role_5','guest_role_6'];
+  1711→        let guestTweens = {};  // agentId -> {move, name}
+  1712→        let hiddenDemoNames = new Set();
+  1713→        const DEMO_MODE = new URLSearchParams(window.location.search).get('demo') === '1';
+  1714→        const FETCH_INTERVAL = 1000;
+  1715→        const GUEST_AGENTS_FETCH_INTERVAL = 3500;
+  1716→        const BLINK_INTERVAL = 2500;
+  1717→        const BUBBLE_INTERVAL = 8000;
+  1718→        const CAT_BUBBLE_INTERVAL = 18000; // cat bubble much less frequent
+  1719→        let lastCatBubble = 0;
+  1720→        let lastGuestAgentsFetch = 0;
+  1721→        let lastGuestBubbleAt = 0;
+  1722→        const TYPEWRITER_DELAY = 50;
+  1723→        let lastSeenGuestIds = new Set(); // 用于检测新加入的访客，触发欢迎气泡
+  1724→        let guestWelcomeInitialized = false;
+  1725→
+  1726→        // 状态控制栏函数（用于测试）
+  1727→        function setState(state, detail) {
+  1728→            fetch('/set_state', {
+  1729→                method: 'POST',
+  1730→                headers: { 'Content-Type': 'application/json' },
+  1731→                body: JSON.stringify({ state, detail })
+  1732→            })
+  1733→            .then((res) => {
+  1734→                if (!res.ok) throw new Error(`set_state failed: ${res.status}`);
+  1735→                return fetchStatus();
+  1736→            })
+  1737→            .catch((e) => {
+  1738→                console.error('setState failed', e);
+  1739→            });
+  1740→        }
+  1741→
+  1742→        function updateAssetAuthUI() {
+  1743→            const gate = document.getElementById('asset-auth-gate');
+  1744→            const main = document.getElementById('asset-main-content');
+  1745→            if (!gate || !main) return;
+  1746→            gate.style.display = assetDrawerAuthed ? 'none' : 'block';
+  1747→            main.style.display = assetDrawerAuthed ? 'block' : 'none';
+  1748→            updateManualPanelUI();
+  1749→        }
+  1750→
+  1751→        function updateManualPanelUI() {
+  1752→            const panel = document.getElementById('asset-manual-panel');
+  1753→            if (!panel) return;
+  1754→            panel.classList.toggle('open', !!assetManualPanelOpen && !!assetDrawerAuthed);
+  1755→        }
+  1756→
+  1757→        async function unlockAssetDrawer() {
+  1758→            const input = document.getElementById('asset-pass-input');
+  1759→            const msg = document.getElementById('asset-auth-msg');
+  1760→            const val = (input?.value || '').trim();
+  1761→            if (!val) {
+  1762→                if (msg) msg.textContent = '❌ 请输入验证码';
+  1763→                return;
+  1764→            }
+  1765→            try {
+  1766→                const res = await fetch('/assets/auth', {
+  1767→                    method: 'POST',
+  1768→                    headers: { 'Content-Type': 'application/json' },
+  1769→                    body: JSON.stringify({ password: val })
+  1770→                });
+  1771→                const data = await res.json();
+  1772→                if (data && data.ok) {
+  1773→                    assetDrawerAuthed = true;
+  1774→                    if (msg) msg.textContent = '✅ 验证通过';
+  1775→                    updateAssetAuthUI();
+  1776→                    await refreshAssetDrawerList();
+  1777→                    await renderHomeFavorites(false);
+  1778→                    bindDrawerFileMeta();
+  1779→                } else {
+  1780→                    assetDrawerAuthed = false;
+  1781→                    if (msg) msg.textContent = '❌ 验证码错误';
+  1782→                }
+  1783→            } catch (e) {
+  1784→                assetDrawerAuthed = false;
+  1785→                if (msg) msg.textContent = `❌ 验证失败：${e}`;
+  1786→            }
+  1787→        }
+  1788→
+  1789→        function formatSizeHuman(n) {
+  1790→            if (!n) return '0 KB';
+  1791→            if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(2) + ' MB';
+  1792→            return (n / 1024).toFixed(1) + ' KB';
+  1793→        }
+  1794→        function toAssetStem(v) {
+  1795→            const s = (v || '').toLowerCase();
+  1796→            const file = s.split('/').pop() || s;
+  1797→            return file.replace(/\.[^.]+$/, '');
+  1798→        }
+  1799→
+  1800→        function getAssetDisplayName(path) {
+  1801→            const stem = toAssetStem(path);
+  1802→            const lang = (uiLang || 'zh');
+  1803→            const nameMap = {
+  1804→                zh: {
+  1805→                    'star-idle-v5': '主角·待命状态',
+  1806→                    'star-working-spritesheet-grid': '主角·工作状态',
+  1807→                    'sync-animation': '主角·同步状态',
+  1808→                    'sync-animation-v3-grid': '主角·同步状态',
+  1809→                    'error-bug-spritesheet-grid': '主角·报错状态',
+  1810→                    'cats-spritesheet': '随机猫猫',
+  1811→                    'coffee-machine-v3-grid': '咖啡机',
+  1812→                    'coffee-machine-shadow-v1': '咖啡机阴影',
+  1813→                    'posters-spritesheet': '随机海报',
+  1814→                    'serverroom-spritesheet': '服务器房动画',
+  1815→                    'plants-spritesheet': '随机绿植',
+  1816→                    'flowers-bloom-v2': '随机花朵',
+  1817→                    'office_bg_small': '办公室背景',
+  1818→                    'memo-bg': '昨日小记底图',
+  1819→                    'desk-v3': '办公桌',
+  1820→                    'desk': '办公桌（旧）',
+  1821→                    'guest_anim_1': '访客动画 1',
+  1822→                    'guest_anim_2': '访客动画 2',
+  1823→                    'guest_anim_3': '访客动画 3',
+  1824→                    'guest_anim_4': '访客动画 4',
+  1825→                    'guest_anim_5': '访客动画 5',
+  1826→                    'guest_anim_6': '访客动画 6'
+  1827→                },
+  1828→                en: {
+  1829→                    'star-idle-v5': 'Main · Idle',
+  1830→                    'star-working-spritesheet-grid': 'Main · Working',
+  1831→                    'sync-animation': 'Main · Syncing',
+  1832→                    'sync-animation-v3-grid': 'Main · Syncing',
+  1833→                    'error-bug-spritesheet-grid': 'Main · Error',
+  1834→                    'cats-spritesheet': 'Random Cats',
+  1835→                    'coffee-machine-v3-grid': 'Coffee Machine',
+  1836→                    'coffee-machine-shadow-v1': 'Coffee Machine Shadow',
+  1837→                    'posters-spritesheet': 'Random Posters',
+  1838→                    'serverroom-spritesheet': 'Server Room',
+  1839→                    'plants-spritesheet': 'Random Plants',
+  1840→                    'flowers-bloom-v2': 'Random Flowers',
+  1841→                    'office_bg_small': 'Office Background',
+  1842→                    'memo-bg': 'Memo Background',
+  1843→                    'desk-v3': 'Desk',
+  1844→                    'desk': 'Desk (Old)',
+  1845→                    'guest_anim_1': 'Guest Animation 1',
+  1846→                    'guest_anim_2': 'Guest Animation 2',
+  1847→                    'guest_anim_3': 'Guest Animation 3',
+  1848→                    'guest_anim_4': 'Guest Animation 4',
+  1849→                    'guest_anim_5': 'Guest Animation 5',
+  1850→                    'guest_anim_6': 'Guest Animation 6'
+  1851→                },
+  1852→                ja: {
+  1853→                    'star-idle-v5': 'メイン・待機状態',
+  1854→                    'star-working-spritesheet-grid': 'メイン・作業状態',
+  1855→                    'sync-animation': 'メイン・同期状態',
+  1856→                    'sync-animation-v3-grid': 'メイン・同期状態',
+  1857→                    'error-bug-spritesheet-grid': 'メイン・エラー状態',
+  1858→                    'cats-spritesheet': 'ランダム猫',
+  1859→                    'coffee-machine-v3-grid': 'コーヒーマシン',
+  1860→                    'coffee-machine-shadow-v1': 'コーヒーマシン影',
+  1861→                    'posters-spritesheet': 'ランダムポスター',
+  1862→                    'serverroom-spritesheet': 'サーバールーム',
+  1863→                    'plants-spritesheet': 'ランダム植物',
+  1864→                    'flowers-bloom-v2': 'ランダム花',
+  1865→                    'office_bg_small': 'オフィス背景',
+  1866→                    'memo-bg': 'メモ背景',
+  1867→                    'desk-v3': 'デスク',
+  1868→                    'desk': 'デスク（旧）',
+  1869→                    'guest_anim_1': '訪客アニメ 1',
+  1870→                    'guest_anim_2': '訪客アニメ 2',
+  1871→                    'guest_anim_3': '訪客アニメ 3',
+  1872→                    'guest_anim_4': '訪客アニメ 4',
+  1873→                    'guest_anim_5': '訪客アニメ 5',
+  1874→                    'guest_anim_6': '訪客アニメ 6'
+  1875→                }
+  1876→            };
+  1877→            const langMap = nameMap[lang] || nameMap.zh;
+  1878→            return langMap[stem] || stem;
+  1879→        }
+  1880→
+  1881→        const ASSET_HELP_TEXT_MAP = {
+  1882→            zh: {
+  1883→                'office_bg_small': '主场景底图（当前生效）。建议 1280×720（16:9），保留房间结构与视角，避免角色站位错位。',
+  1884→                'office_bg': '历史背景备份。通常不直接生效，建议与 office_bg_small 保持同构图用于回退。',
+  1885→                'star-idle-v5': '主角待机动画表。请保持 256×256 分帧与网格布局一致，否则待机动作会错帧。',
+  1886→                'star-working-spritesheet-grid': '主角工作动画表（工位状态）。请保持 300×300 分帧，建议人物重心与原图一致。',
+  1887→                'sync-animation': '同步状态素材（当前引用）。建议按 256×256 帧规范制作，避免同步状态显示静止或抖动。',
+  1888→                'sync-animation-v3-grid': '同步动画表（兼容资源）。保持 256×256 网格可用于替换同步动作细节。',
+  1889→                'error-bug-spritesheet-grid': '报错状态动画表。请保持 220×220 分帧，建议高对比度以增强异常提示感。',
+  1890→                'desk-v3': '办公桌前景层。影响主角前后遮挡关系，建议保持当前比例与锚点视觉重心。',
+  1891→                'desk': '旧版办公桌素材（兼容用）。建议与 desk-v3 保持相近体积与锚点，避免遮挡异常。',
+  1892→                'sofa-idle-v3': '沙发静态素材。建议保持 256×256 与透明背景，避免替换后位置漂移。',
+  1893→                'sofa-shadow-v1': '沙发阴影层。建议与沙发主体同坐标叠放，增强贴地感。',
+  1894→                'memo-bg': '小记面板底图。建议留出文字阅读区域，降低高频纹理，避免信息难读。',
+  1895→                'plants-spritesheet': '绿植随机素材。保持 160×160 分帧，可一次替换多个绿植位的观感。',
+  1896→                'posters-spritesheet': '海报随机素材。保持 160×160 分帧，建议统一风格避免墙面杂乱。',
+  1897→                'cats-spritesheet': '猫咪随机素材。保持 160×160 分帧，建议轮廓清晰、识别度高。',
+  1898→                'coffee-machine-v3-grid': '咖啡机静态素材。建议保持 230×230 与当前锚点，避免位置偏移。',
+  1899→                'coffee-machine-shadow-v1': '咖啡机阴影层。建议与咖啡机本体同宽对齐，增强贴地感。',
+  1900→                'serverroom-spritesheet': '服务器房动画表。保持 180×251 分帧，灯效变化建议节奏均匀不过闪。',
+  1901→                'flowers-bloom-v2': '花朵随机素材。保持 128×128 分帧，建议色彩与整体办公室主色协调。',
+  1902→                'guest_anim_1': '访客动画序列 1（32×32 分帧）。建议保持像素风、轮廓清晰，与主角风格统一。',
+  1903→                'guest_anim_2': '访客动画序列 2（32×32 分帧）。建议保持像素风、轮廓清晰，与主角风格统一。',
+  1904→                'guest_anim_3': '访客动画序列 3（32×32 分帧）。建议保持像素风、轮廓清晰，与主角风格统一。',
+  1905→                'guest_anim_4': '访客动画序列 4（32×32 分帧）。建议保持像素风、轮廓清晰，与主角风格统一。',
+  1906→                'guest_anim_5': '访客动画序列 5（32×32 分帧）。建议保持像素风、轮廓清晰，与主角风格统一。',
+  1907→                'guest_anim_6': '访客动画序列 6（32×32 分帧）。建议保持像素风、轮廓清晰，与主角风格统一。',
+  1908→                'guest_role_1': '访客静态形象备用图 1。建议与对应 guest_anim 角色设定一致，避免切换割裂。',
+  1909→                'guest_role_2': '访客静态形象备用图 2。建议与对应 guest_anim 角色设定一致，避免切换割裂。',
+  1910→                'guest_role_3': '访客静态形象备用图 3。建议与对应 guest_anim 角色设定一致，避免切换割裂。',
+  1911→                'guest_role_4': '访客静态形象备用图 4。建议与对应 guest_anim 角色设定一致，避免切换割裂。',
+  1912→                'guest_role_5': '访客静态形象备用图 5。建议与对应 guest_anim 角色设定一致，避免切换割裂。',
+  1913→                'guest_role_6': '访客静态形象备用图 6。建议与对应 guest_anim 角色设定一致，避免切换割裂。'
+  1914→            },
+  1915→            en: {
+  1916→                'office_bg_small': 'Primary room background (active). Use 1280×720 (16:9), keep room structure/perspective to avoid character misalignment.',
+  1917→                'office_bg': 'Legacy backup background. Usually not directly active; keep composition aligned with office_bg_small for rollback.',
+  1918→                'star-idle-v5': 'Main idle spritesheet. Keep 256×256 frame size and grid layout, or idle animation will break.',
+  1919→                'star-working-spritesheet-grid': 'Main working spritesheet (desk state). Keep 300×300 frames; preserve visual center/anchor.',
+  1920→                'sync-animation': 'Sync-state asset (currently referenced). Follow 256×256 frame spec to avoid static/jitter sync visuals.',
+  1921→                'sync-animation-v3-grid': 'Sync spritesheet (compat resource). Keep 256×256 grid for sync animation replacement.',
+  1922→                'error-bug-spritesheet-grid': 'Error-state spritesheet. Keep 220×220 frames; high contrast helps warning readability.',
+  1923→                'desk-v3': 'Desk foreground layer. Controls overlap with character; keep ratio and visual anchor stable.',
+  1924→                'desk': 'Legacy desk asset (compatibility). Keep size/anchor close to desk-v3 to avoid overlap issues.',
+  1925→                'sofa-idle-v3': 'Static sofa asset. Keep 256×256 and transparent background to prevent position drift.',
+  1926→                'sofa-shadow-v1': 'Sofa shadow layer. Keep the exact same coordinates as sofa body for grounded feel.',
+  1927→                'memo-bg': 'Memo panel background. Reserve readable text area; avoid dense textures behind text.',
+  1928→                'plants-spritesheet': 'Random plant sprites. Keep 160×160 frames; updates several plant spots at once.',
+  1929→                'posters-spritesheet': 'Random poster sprites. Keep 160×160 frames; prefer consistent style to avoid wall clutter.',
+  1930→                'cats-spritesheet': 'Random cat sprites. Keep 160×160 frames; clear silhouette improves recognition.',
+  1931→                'coffee-machine-v3-grid': 'Static coffee machine asset. Keep 230×230 size and anchor to avoid drift.',
+  1932→                'coffee-machine-shadow-v1': 'Coffee machine shadow layer. Align width/anchor with the machine body for grounded feel.',
+  1933→                'serverroom-spritesheet': 'Server-room animation sheet. Keep 180×251 frames; avoid over-flickering lights.',
+  1934→                'flowers-bloom-v2': 'Random flower sprites. Keep 128×128 frames; align palette with overall office mood.',
+  1935→                'guest_anim_1': 'Guest animation set 1 (32×32 frames). Keep pixel-art style/outline consistent with main cast.',
+  1936→                'guest_anim_2': 'Guest animation set 2 (32×32 frames). Keep pixel-art style/outline consistent with main cast.',
+  1937→                'guest_anim_3': 'Guest animation set 3 (32×32 frames). Keep pixel-art style/outline consistent with main cast.',
+  1938→                'guest_anim_4': 'Guest animation set 4 (32×32 frames). Keep pixel-art style/outline consistent with main cast.',
+  1939→                'guest_anim_5': 'Guest animation set 5 (32×32 frames). Keep pixel-art style/outline consistent with main cast.',
+  1940→                'guest_anim_6': 'Guest animation set 6 (32×32 frames). Keep pixel-art style/outline consistent with main cast.',
+  1941→                'guest_role_1': 'Fallback static guest avatar 1. Keep design aligned with corresponding guest_anim for smooth fallback.',
+  1942→                'guest_role_2': 'Fallback static guest avatar 2. Keep design aligned with corresponding guest_anim for smooth fallback.',
+  1943→                'guest_role_3': 'Fallback static guest avatar 3. Keep design aligned with corresponding guest_anim for smooth fallback.',
+  1944→                'guest_role_4': 'Fallback static guest avatar 4. Keep design aligned with corresponding guest_anim for smooth fallback.',
+  1945→                'guest_role_5': 'Fallback static guest avatar 5. Keep design aligned with corresponding guest_anim for smooth fallback.',
+  1946→                'guest_role_6': 'Fallback static guest avatar 6. Keep design aligned with corresponding guest_anim for smooth fallback.'
+  1947→            },
+  1948→            ja: {
+  1949→                'office_bg_small': 'メイン背景（現在有効）。1280×720（16:9）推奨。部屋構造と視点を維持し、キャラの位置ズレを防いでください。',
+  1950→                'office_bg': '旧背景のバックアップ。通常は直接反映されません。office_bg_small と同構図で保持すると復旧しやすいです。',
+  1951→                'star-idle-v5': 'メイン待機スプライトシート。256×256 分割とグリッド構成を維持しないと待機アニメが崩れます。',
+  1952→                'star-working-spritesheet-grid': 'メイン作業スプライトシート（デスク状態）。300×300 分割を維持し、重心位置を揃えてください。',
+  1953→                'sync-animation': '同期状態素材（現在参照中）。256×256 仕様を守ると静止/ガタつきを回避できます。',
+  1954→                'sync-animation-v3-grid': '同期スプライトシート（互換用）。256×256 グリッド維持で同期演出を差し替え可能です。',
+  1955→                'error-bug-spritesheet-grid': 'エラー状態スプライトシート。220×220 分割を維持し、視認性の高い配色を推奨。',
+  1956→                'desk-v3': 'デスク前景レイヤー。キャラとの前後関係に影響するため、比率と視覚アンカーを維持してください。',
+  1957→                'desk': '旧デスク素材（互換）。desk-v3 に近いサイズ/アンカーで差し替えると崩れにくいです。',
+  1958→                'sofa-idle-v3': 'ソファ静止素材。256×256 と透過背景を維持し、位置ズレを防いでください。',
+  1959→                'sofa-shadow-v1': 'ソファ影レイヤー。本体と同座標に重ねると接地感が出ます。',
+  1960→                'memo-bg': 'メモパネル背景。文字可読域を確保し、細かすぎる模様は避けてください。',
+  1961→                'plants-spritesheet': '植物ランダム素材。160×160 分割を維持すると複数の植物表示を一括更新できます。',
+  1962→                'posters-spritesheet': 'ポスターランダム素材。160×160 分割を維持し、壁面の統一感を意識してください。',
+  1963→                'cats-spritesheet': '猫ランダム素材。160×160 分割を維持し、シルエットを明確にすると見分けやすいです。',
+  1964→                'coffee-machine-v3-grid': 'コーヒーマシン静止素材。230×230 サイズとアンカーを維持してください。',
+  1965→                'coffee-machine-shadow-v1': 'コーヒーマシン影レイヤー。本体と幅・アンカーを揃えると接地感が出ます。',
+  1966→                'serverroom-spritesheet': 'サーバールームアニメ素材。180×251 分割を維持し、過度な点滅は避けてください。',
+  1967→                'flowers-bloom-v2': '花ランダム素材。128×128 分割を維持し、全体の色調と合わせると馴染みます。',
+  1968→                'guest_anim_1': '訪客アニメセット 1（32×32 分割）。ピクセル感と輪郭太さを既存キャラに合わせてください。',
+  1969→                'guest_anim_2': '訪客アニメセット 2（32×32 分割）。ピクセル感と輪郭太さを既存キャラに合わせてください。',
+  1970→                'guest_anim_3': '訪客アニメセット 3（32×32 分割）。ピクセル感と輪郭太さを既存キャラに合わせてください。',
+  1971→                'guest_anim_4': '訪客アニメセット 4（32×32 分割）。ピクセル感と輪郭太さを既存キャラに合わせてください。',
+  1972→                'guest_anim_5': '訪客アニメセット 5（32×32 分割）。ピクセル感と輪郭太さを既存キャラに合わせてください。',
+  1973→                'guest_anim_6': '訪客アニメセット 6（32×32 分割）。ピクセル感と輪郭太さを既存キャラに合わせてください。',
+  1974→                'guest_role_1': '訪客静止フォールバック画像 1。対応する guest_anim とデザインを揃えると切替時に自然です。',
+  1975→                'guest_role_2': '訪客静止フォールバック画像 2。対応する guest_anim とデザインを揃えると切替時に自然です。',
+  1976→                'guest_role_3': '訪客静止フォールバック画像 3。対応する guest_anim とデザインを揃えると切替時に自然です。',
+  1977→                'guest_role_4': '訪客静止フォールバック画像 4。対応する guest_anim とデザインを揃えると切替時に自然です。',
+  1978→                'guest_role_5': '訪客静止フォールバック画像 5。対応する guest_anim とデザインを揃えると切替時に自然です。',
+  1979→                'guest_role_6': '訪客静止フォールバック画像 6。対応する guest_anim とデザインを揃えると切替時に自然です。'
+  1980→            }
+  1981→        };
+  1982→
+  1983→        function getAssetHelpText(path) {
+  1984→            const stem = toAssetStem(path);
+  1985→            const lang = (uiLang || 'zh');
+  1986→            const map = ASSET_HELP_TEXT_MAP[lang] || ASSET_HELP_TEXT_MAP.zh;
+  1987→            return map[stem] || t('assetHintDefault');
+  1988→        }
+  1989→
+  1990→        function renderSelectedAssetGuidance(path, inScene = null) {
+  1991→            const out = document.getElementById('asset-upload-result');
+  1992→            if (!out) return;
+  1993→            if (!path) { out.innerHTML = ''; return; }
+  1994→            const displayName = getAssetDisplayName(path);
+  1995→            const line1 = `📌 ${displayName}（${path}）`;
+  1996→            const line2 = `💡 ${getAssetHelpText(path)}`;
+  1997→            const line3 = (inScene === false) ? `⚠️ ${t('assetHintNotInScene')}` : '';
+  1998→            out.innerHTML = [line1, line2, line3]
+  1999→                .filter(Boolean)
+  2000→                .map(v => `<p class="hint-p">${v}</p>`)
+
+[showing lines 1-2000 of 4890; use offset=2001 with limit to continue reading]

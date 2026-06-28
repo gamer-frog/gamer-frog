@@ -1,0 +1,1035 @@
+     1→// Star Office UI - 游戏主逻辑
+     2→// 依赖: layout.js（必须在这个之前加载）
+     3→
+     4→// 检测浏览器是否支持 WebP
+     5→let supportsWebP = false;
+     6→
+     7→// 方法 1: 使用 canvas 检测
+     8→function checkWebPSupport() {
+     9→  return new Promise((resolve) => {
+    10→    const canvas = document.createElement('canvas');
+    11→    if (canvas.getContext && canvas.getContext('2d')) {
+    12→      resolve(canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0);
+    13→    } else {
+    14→      resolve(false);
+    15→    }
+    16→  });
+    17→}
+    18→
+    19→// 方法 2: 使用 image 检测（备用）
+    20→function checkWebPSupportFallback() {
+    21→  return new Promise((resolve) => {
+    22→    const img = new Image();
+    23→    img.onload = () => resolve(true);
+    24→    img.onerror = () => resolve(false);
+    25→    img.src = 'data:image/webp;base64,UklGRkoAAABXRUJQVlA4WAoAAAAQAAAAAAAAAAAAQUxQSAwAAAABBxAR/Q9ERP8DAABWUDggGAAAADABAJ0BKgEAAQADADQlpAADcAD++/1QAA==';
+    26→  });
+    27→}
+    28→
+    29→// 获取文件扩展名（根据 WebP 支持情况 + 布局配置的 forcePng）
+    30→function getExt(pngFile) {
+    31→  // star-working-spritesheet.png 太宽了，WebP 不支持，始终用 PNG
+    32→  if (pngFile === 'star-working-spritesheet.png') {
+    33→    return '.png';
+    34→  }
+    35→  // 如果布局配置里强制用 PNG，就用 .png
+    36→  if (LAYOUT.forcePng && LAYOUT.forcePng[pngFile.replace(/\.(png|webp)$/, '')]) {
+    37→    return '.png';
+    38→  }
+    39→  return supportsWebP ? '.webp' : '.png';
+    40→}
+    41→
+    42→const config = {
+    43→  type: Phaser.AUTO,
+    44→  width: LAYOUT.game.width,
+    45→  height: LAYOUT.game.height,
+    46→  parent: 'game-container',
+    47→  pixelArt: true,
+    48→  physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+    49→  scene: { preload: preload, create: create, update: update }
+    50→};
+    51→
+    52→let totalAssets = 0;
+    53→let loadedAssets = 0;
+    54→let loadingProgressBar, loadingProgressContainer, loadingOverlay, loadingText;
+    55→
+    56→// Memo 相关函数
+    57→async function loadMemo() {
+    58→  const memoDate = document.getElementById('memo-date');
+    59→  const memoContent = document.getElementById('memo-content');
+    60→
+    61→  try {
+    62→    const response = await fetch('/yesterday-memo?t=' + Date.now(), { cache: 'no-store' });
+    63→    const data = await response.json();
+    64→
+    65→    if (data.success && data.memo) {
+    66→      memoDate.textContent = data.date || '';
+    67→      memoContent.innerHTML = data.memo.replace(/\n/g, '<br>');
+    68→    } else {
+    69→      memoContent.innerHTML = '<div id="memo-placeholder">暂无昨日日记</div>';
+    70→    }
+    71→  } catch (e) {
+    72→    console.error('加载 memo 失败:', e);
+    73→    memoContent.innerHTML = '<div id="memo-placeholder">加载失败</div>';
+    74→  }
+    75→}
+    76→
+    77→// 更新加载进度
+    78→function updateLoadingProgress() {
+    79→  loadedAssets++;
+    80→  const percent = Math.min(100, Math.round((loadedAssets / totalAssets) * 100));
+    81→  if (loadingProgressBar) {
+    82→    loadingProgressBar.style.width = percent + '%';
+    83→  }
+    84→  if (loadingText) {
+    85→    loadingText.textContent = `正在加载 Star 的像素办公室... ${percent}%`;
+    86→  }
+    87→}
+    88→
+    89→// 隐藏加载界面
+    90→function hideLoadingOverlay() {
+    91→  setTimeout(() => {
+    92→    if (loadingOverlay) {
+    93→      loadingOverlay.style.transition = 'opacity 0.5s ease';
+    94→      loadingOverlay.style.opacity = '0';
+    95→      setTimeout(() => {
+    96→        loadingOverlay.style.display = 'none';
+    97→      }, 500);
+    98→    }
+    99→  }, 300);
+   100→}
+   101→
+   102→const STATES = {
+   103→  idle: { name: '待命', area: 'breakroom' },
+   104→  writing: { name: '整理文档', area: 'writing' },
+   105→  researching: { name: '搜索信息', area: 'researching' },
+   106→  executing: { name: '执行任务', area: 'writing' },
+   107→  syncing: { name: '同步备份', area: 'writing' },
+   108→  error: { name: '出错了', area: 'error' }
+   109→};
+   110→
+   111→const BUBBLE_TEXTS = {
+   112→  idle: [
+   113→    '待命中：耳朵竖起来了',
+   114→    '我在这儿，随时可以开工',
+   115→    '先把桌面收拾干净再说',
+   116→    '呼——给大脑放个风',
+   117→    '今天也要优雅地高效',
+   118→    '等待，是为了更准确的一击',
+   119→    '咖啡还热，灵感也还在',
+   120→    '我在后台给你加 Buff',
+   121→    '状态：静心 / 充电',
+   122→    '小猫说：慢一点也没关系'
+   123→  ],
+   124→  writing: [
+   125→    '进入专注模式：勿扰',
+   126→    '先把关键路径跑通',
+   127→    '我来把复杂变简单',
+   128→    '把 bug 关进笼子里',
+   129→    '写到一半，先保存',
+   130→    '把每一步都做成可回滚',
+   131→    '今天的进度，明天的底气',
+   132→    '先收敛，再发散',
+   133→    '让系统变得更可解释',
+   134→    '稳住，我们能赢'
+   135→  ],
+   136→  researching: [
+   137→    '我在挖证据链',
+   138→    '让我把信息熬成结论',
+   139→    '找到了：关键在这里',
+   140→    '先把变量控制住',
+   141→    '我在查：它为什么会这样',
+   142→    '把直觉写成验证',
+   143→    '先定位，再优化',
+   144→    '别急，先画因果图'
+   145→  ],
+   146→  executing: [
+   147→    '执行中：不要眨眼',
+   148→    '把任务切成小块逐个击破',
+   149→    '开始跑 pipeline',
+   150→    '一键推进：走你',
+   151→    '让结果自己说话',
+   152→    '先做最小可行，再做最美版本'
+   153→  ],
+   154→  syncing: [
+   155→    '同步中：把今天锁进云里',
+   156→    '备份不是仪式，是安全感',
+   157→    '写入中…别断电',
+   158→    '把变更交给时间戳',
+   159→    '云端对齐：咔哒',
+   160→    '同步完成前先别乱动',
+   161→    '把未来的自己从灾难里救出来',
+   162→    '多一份备份，少一份后悔'
+   163→  ],
+   164→  error: [
+   165→    '警报响了：先别慌',
+   166→    '我闻到 bug 的味道了',
+   167→    '先复现，再谈修复',
+   168→    '把日志给我，我会说人话',
+   169→    '错误不是敌人，是线索',
+   170→    '把影响面圈起来',
+   171→    '先止血，再手术',
+   172→    '我在：马上定位根因',
+   173→    '别怕，这种我见多了',
+   174→    '报警中：让问题自己现形'
+   175→  ],
+   176→  cat: [
+   177→    '喵~',
+   178→    '咕噜咕噜…',
+   179→    '尾巴摇一摇',
+   180→    '晒太阳最开心',
+   181→    '有人来看我啦',
+   182→    '我是这个办公室的吉祥物',
+   183→    '伸个懒腰',
+   184→    '今天的罐罐准备好了吗',
+   185→    '呼噜呼噜',
+   186→    '这个位置视野最好'
+   187→  ]
+   188→};
+   189→
+   190→let game, star, sofa, serverroom, areas = {}, currentState = 'idle', pendingDesiredState = null, statusText, lastFetch = 0, lastBlink = 0, lastBubble = 0, targetX = 660, targetY = 170, bubble = null, typewriterText = '', typewriterTarget = '', typewriterIndex = 0, lastTypewriter = 0, syncAnimSprite = null, catBubble = null;
+   191→let isMoving = false;
+   192→let waypoints = [];
+   193→let lastWanderAt = 0;
+   194→let coordsOverlay, coordsDisplay, coordsToggle;
+   195→let showCoords = false;
+   196→const FETCH_INTERVAL = 2000;
+   197→const BLINK_INTERVAL = 2500;
+   198→const BUBBLE_INTERVAL = 8000;
+   199→const CAT_BUBBLE_INTERVAL = 18000;
+   200→let lastCatBubble = 0;
+   201→const TYPEWRITER_DELAY = 50;
+   202→let agents = {}; // agentId -> sprite/container
+   203→let lastAgentsFetch = 0;
+   204→const AGENTS_FETCH_INTERVAL = 2500;
+   205→
+   206→// agent 颜色配置
+   207→const AGENT_COLORS = {
+   208→  star: 0xffd700,
+   209→  npc1: 0x00aaff,
+   210→  agent_nika: 0xff69b4,
+   211→  default: 0x94a3b8
+   212→};
+   213→
+   214→// agent 名字颜色
+   215→const NAME_TAG_COLORS = {
+   216→  approved: 0x22c55e,
+   217→  pending: 0xf59e0b,
+   218→  rejected: 0xef4444,
+   219→  offline: 0x64748b,
+   220→  default: 0x1f2937
+   221→};
+   222→
+   223→// breakroom / writing / error 区域的 agent 分布位置（多 agent 时错开）
+   224→const AREA_POSITIONS = {
+   225→  breakroom: [
+   226→    { x: 620, y: 180 },
+   227→    { x: 560, y: 220 },
+   228→    { x: 680, y: 210 },
+   229→    { x: 540, y: 170 },
+   230→    { x: 700, y: 240 },
+   231→    { x: 600, y: 250 },
+   232→    { x: 650, y: 160 },
+   233→    { x: 580, y: 200 }
+   234→  ],
+   235→  writing: [
+   236→    { x: 760, y: 320 },
+   237→    { x: 830, y: 280 },
+   238→    { x: 690, y: 350 },
+   239→    { x: 770, y: 260 },
+   240→    { x: 850, y: 340 },
+   241→    { x: 720, y: 300 },
+   242→    { x: 800, y: 370 },
+   243→    { x: 750, y: 240 }
+   244→  ],
+   245→  error: [
+   246→    { x: 180, y: 260 },
+   247→    { x: 120, y: 220 },
+   248→    { x: 240, y: 230 },
+   249→    { x: 160, y: 200 },
+   250→    { x: 220, y: 270 },
+   251→    { x: 140, y: 250 },
+   252→    { x: 200, y: 210 },
+   253→    { x: 260, y: 260 }
+   254→  ]
+   255→};
+   256→
+   257→
+   258→// 状态控制栏函数（用于测试）
+   259→function setState(state, detail) {
+   260→  fetch('/set_state', {
+   261→    method: 'POST',
+   262→    headers: { 'Content-Type': 'application/json' },
+   263→    body: JSON.stringify({ state, detail })
+   264→  }).then(() => fetchStatus());
+   265→}
+   266→
+   267→// 初始化：先检测 WebP 支持，再启动游戏
+   268→async function initGame() {
+   269→  try {
+   270→    supportsWebP = await checkWebPSupport();
+   271→  } catch (e) {
+   272→    try {
+   273→      supportsWebP = await checkWebPSupportFallback();
+   274→    } catch (e2) {
+   275→      supportsWebP = false;
+   276→    }
+   277→  }
+   278→
+   279→  console.log('WebP 支持:', supportsWebP);
+   280→  new Phaser.Game(config);
+   281→}
+   282→
+   283→function preload() {
+   284→  loadingOverlay = document.getElementById('loading-overlay');
+   285→  loadingProgressBar = document.getElementById('loading-progress-bar');
+   286→  loadingText = document.getElementById('loading-text');
+   287→  loadingProgressContainer = document.getElementById('loading-progress-container');
+   288→
+   289→  // 从 LAYOUT 读取总资源数量（避免 magic number）
+   290→  totalAssets = LAYOUT.totalAssets || 15;
+   291→  loadedAssets = 0;
+   292→
+   293→  this.load.on('filecomplete', () => {
+   294→    updateLoadingProgress();
+   295→  });
+   296→
+   297→  this.load.on('complete', () => {
+   298→    hideLoadingOverlay();
+   299→  });
+   300→
+   301→  this.load.image('office_bg', '/static/office_bg_small' + (supportsWebP ? '.webp' : '.png') + '?v={{VERSION_TIMESTAMP}}');
+   302→  this.load.spritesheet('star_idle', '/static/star-idle-spritesheet' + getExt('star-idle-spritesheet.png'), { frameWidth: 128, frameHeight: 128 });
+   303→  this.load.spritesheet('star_researching', '/static/star-researching-spritesheet' + getExt('star-researching-spritesheet.png'), { frameWidth: 128, frameHeight: 105 });
+   304→
+   305→  this.load.image('sofa_idle', '/static/sofa-idle' + getExt('sofa-idle.png'));
+   306→  this.load.spritesheet('sofa_busy', '/static/sofa-busy-spritesheet' + getExt('sofa-busy-spritesheet.png'), { frameWidth: 256, frameHeight: 256 });
+   307→
+   308→  this.load.spritesheet('plants', '/static/plants-spritesheet' + getExt('plants-spritesheet.png'), { frameWidth: 160, frameHeight: 160 });
+   309→  this.load.spritesheet('posters', '/static/posters-spritesheet' + getExt('posters-spritesheet.png'), { frameWidth: 160, frameHeight: 160 });
+   310→  this.load.spritesheet('coffee_machine', '/static/coffee-machine-spritesheet' + getExt('coffee-machine-spritesheet.png'), { frameWidth: 230, frameHeight: 230 });
+   311→  this.load.spritesheet('serverroom', '/static/serverroom-spritesheet' + getExt('serverroom-spritesheet.png'), { frameWidth: 180, frameHeight: 251 });
+   312→
+   313→  this.load.spritesheet('error_bug', '/static/error-bug-spritesheet-grid' + (supportsWebP ? '.webp' : '.png'), { frameWidth: 180, frameHeight: 180 });
+   314→  this.load.spritesheet('cats', '/static/cats-spritesheet' + (supportsWebP ? '.webp' : '.png'), { frameWidth: 160, frameHeight: 160 });
+   315→  this.load.image('desk', '/static/desk' + getExt('desk.png'));
+   316→  this.load.spritesheet('star_working', '/static/star-working-spritesheet-grid' + (supportsWebP ? '.webp' : '.png'), { frameWidth: 230, frameHeight: 144 });
+   317→  this.load.spritesheet('sync_anim', '/static/sync-animation-spritesheet-grid' + (supportsWebP ? '.webp' : '.png'), { frameWidth: 256, frameHeight: 256 });
+   318→  this.load.image('memo_bg', '/static/memo-bg' + (supportsWebP ? '.webp' : '.png'));
+   319→
+   320→  // 新办公桌：强制 PNG（透明）
+   321→  this.load.image('desk_v2', '/static/desk-v2.png');
+   322→  this.load.spritesheet('flowers', '/static/flowers-spritesheet' + (supportsWebP ? '.webp' : '.png'), { frameWidth: 65, frameHeight: 65 });
+   323→}
+   324→
+   325→function create() {
+   326→  game = this;
+   327→  this.add.image(640, 360, 'office_bg');
+   328→
+   329→  // === 沙发（来自 LAYOUT）===
+   330→  sofa = this.add.sprite(
+   331→    LAYOUT.furniture.sofa.x,
+   332→    LAYOUT.furniture.sofa.y,
+   333→    'sofa_busy'
+   334→  ).setOrigin(LAYOUT.furniture.sofa.origin.x, LAYOUT.furniture.sofa.origin.y);
+   335→  sofa.setDepth(LAYOUT.furniture.sofa.depth);
+   336→
+   337→  this.anims.create({
+   338→    key: 'sofa_busy',
+   339→    frames: this.anims.generateFrameNumbers('sofa_busy', { start: 0, end: 47 }),
+   340→    frameRate: 12,
+   341→    repeat: -1
+   342→  });
+   343→
+   344→  areas = LAYOUT.areas;
+   345→
+   346→  this.anims.create({
+   347→    key: 'star_idle',
+   348→    frames: this.anims.generateFrameNumbers('star_idle', { start: 0, end: 29 }),
+   349→    frameRate: 12,
+   350→    repeat: -1
+   351→  });
+   352→  this.anims.create({
+   353→    key: 'star_researching',
+   354→    frames: this.anims.generateFrameNumbers('star_researching', { start: 0, end: 95 }),
+   355→    frameRate: 12,
+   356→    repeat: -1
+   357→  });
+   358→
+   359→  star = game.physics.add.sprite(areas.breakroom.x, areas.breakroom.y, 'star_idle');
+   360→  star.setOrigin(0.5);
+   361→  star.setScale(1.4);
+   362→  star.setAlpha(0.95);
+   363→  star.setDepth(20);
+   364→  star.setVisible(false);
+   365→  star.anims.stop();
+   366→
+   367→  if (game.textures.exists('sofa_busy')) {
+   368→    sofa.setTexture('sofa_busy');
+   369→    sofa.anims.play('sofa_busy', true);
+   370→  }
+   371→
+   372→  // === 牌匾（来自 LAYOUT）===
+   373→  const plaqueX = LAYOUT.plaque.x;
+   374→  const plaqueY = LAYOUT.plaque.y;
+   375→  const plaqueBg = game.add.rectangle(plaqueX, plaqueY, LAYOUT.plaque.width, LAYOUT.plaque.height, 0x5d4037);
+   376→  plaqueBg.setStrokeStyle(3, 0x3e2723);
+   377→  const plaqueText = game.add.text(plaqueX, plaqueY, '海辛小龙虾的办公室', {
+   378→    fontFamily: 'ArkPixel, monospace',
+   379→    fontSize: '18px',
+   380→    fill: '#ffd700',
+   381→    fontWeight: 'bold',
+   382→    stroke: '#000',
+   383→    strokeThickness: 2
+   384→  }).setOrigin(0.5);
+   385→  game.add.text(plaqueX - 190, plaqueY, '⭐', { fontFamily: 'ArkPixel, monospace', fontSize: '20px' }).setOrigin(0.5);
+   386→  game.add.text(plaqueX + 190, plaqueY, '⭐', { fontFamily: 'ArkPixel, monospace', fontSize: '20px' }).setOrigin(0.5);
+   387→
+   388→  // === 植物们（来自 LAYOUT）===
+   389→  const plantFrameCount = 16;
+   390→  for (let i = 0; i < LAYOUT.furniture.plants.length; i++) {
+   391→    const p = LAYOUT.furniture.plants[i];
+   392→    const randomPlantFrame = Math.floor(Math.random() * plantFrameCount);
+   393→    const plant = game.add.sprite(p.x, p.y, 'plants', randomPlantFrame).setOrigin(0.5);
+   394→    plant.setDepth(p.depth);
+   395→    plant.setInteractive({ useHandCursor: true });
+   396→    window[`plantSprite${i === 0 ? '' : i + 1}`] = plant;
+   397→    plant.on('pointerdown', (() => {
+   398→      const next = Math.floor(Math.random() * plantFrameCount);
+   399→      plant.setFrame(next);
+   400→    }));
+   401→  }
+   402→
+   403→  // === 海报（来自 LAYOUT）===
+   404→  const postersFrameCount = 32;
+   405→  const randomPosterFrame = Math.floor(Math.random() * postersFrameCount);
+   406→  const poster = game.add.sprite(LAYOUT.furniture.poster.x, LAYOUT.furniture.poster.y, 'posters', randomPosterFrame).setOrigin(0.5);
+   407→  poster.setDepth(LAYOUT.furniture.poster.depth);
+   408→  poster.setInteractive({ useHandCursor: true });
+   409→  window.posterSprite = poster;
+   410→  window.posterFrameCount = postersFrameCount;
+   411→  poster.on('pointerdown', () => {
+   412→    const next = Math.floor(Math.random() * window.posterFrameCount);
+   413→    window.posterSprite.setFrame(next);
+   414→  });
+   415→
+   416→  // === 小猫（来自 LAYOUT）===
+   417→  const catsFrameCount = 16;
+   418→  const randomCatFrame = Math.floor(Math.random() * catsFrameCount);
+   419→  const cat = game.add.sprite(LAYOUT.furniture.cat.x, LAYOUT.furniture.cat.y, 'cats', randomCatFrame).setOrigin(LAYOUT.furniture.cat.origin.x, LAYOUT.furniture.cat.origin.y);
+   420→  cat.setDepth(LAYOUT.furniture.cat.depth);
+   421→  cat.setInteractive({ useHandCursor: true });
+   422→  window.catSprite = cat;
+   423→  window.catsFrameCount = catsFrameCount;
+   424→  cat.on('pointerdown', () => {
+   425→    const next = Math.floor(Math.random() * window.catsFrameCount);
+   426→    window.catSprite.setFrame(next);
+   427→  });
+   428→
+   429→  // === 咖啡机（来自 LAYOUT）===
+   430→  this.anims.create({
+   431→    key: 'coffee_machine',
+   432→    frames: this.anims.generateFrameNumbers('coffee_machine', { start: 0, end: 95 }),
+   433→    frameRate: 12.5,
+   434→    repeat: -1
+   435→  });
+   436→  const coffeeMachine = this.add.sprite(
+   437→    LAYOUT.furniture.coffeeMachine.x,
+   438→    LAYOUT.furniture.coffeeMachine.y,
+   439→    'coffee_machine'
+   440→  ).setOrigin(LAYOUT.furniture.coffeeMachine.origin.x, LAYOUT.furniture.coffeeMachine.origin.y);
+   441→  coffeeMachine.setDepth(LAYOUT.furniture.coffeeMachine.depth);
+   442→  coffeeMachine.anims.play('coffee_machine', true);
+   443→
+   444→  // === 服务器区（来自 LAYOUT）===
+   445→  this.anims.create({
+   446→    key: 'serverroom_on',
+   447→    frames: this.anims.generateFrameNumbers('serverroom', { start: 0, end: 39 }),
+   448→    frameRate: 6,
+   449→    repeat: -1
+   450→  });
+   451→  serverroom = this.add.sprite(
+   452→    LAYOUT.furniture.serverroom.x,
+   453→    LAYOUT.furniture.serverroom.y,
+   454→    'serverroom',
+   455→    0
+   456→  ).setOrigin(LAYOUT.furniture.serverroom.origin.x, LAYOUT.furniture.serverroom.origin.y);
+   457→  serverroom.setDepth(LAYOUT.furniture.serverroom.depth);
+   458→  serverroom.anims.stop();
+   459→  serverroom.setFrame(0);
+   460→
+   461→  // === 新办公桌（来自 LAYOUT，强制透明 PNG）===
+   462→  const desk = this.add.image(
+   463→    LAYOUT.furniture.desk.x,
+   464→    LAYOUT.furniture.desk.y,
+   465→    'desk_v2'
+   466→  ).setOrigin(LAYOUT.furniture.desk.origin.x, LAYOUT.furniture.desk.origin.y);
+   467→  desk.setDepth(LAYOUT.furniture.desk.depth);
+   468→
+   469→  // === 花盆（来自 LAYOUT）===
+   470→  const flowerFrameCount = 16;
+   471→  const randomFlowerFrame = Math.floor(Math.random() * flowerFrameCount);
+   472→  const flower = this.add.sprite(
+   473→    LAYOUT.furniture.flower.x,
+   474→    LAYOUT.furniture.flower.y,
+   475→    'flowers',
+   476→    randomFlowerFrame
+   477→  ).setOrigin(LAYOUT.furniture.flower.origin.x, LAYOUT.furniture.flower.origin.y);
+   478→  flower.setScale(LAYOUT.furniture.flower.scale || 1);
+   479→  flower.setDepth(LAYOUT.furniture.flower.depth);
+   480→  flower.setInteractive({ useHandCursor: true });
+   481→  window.flowerSprite = flower;
+   482→  window.flowerFrameCount = flowerFrameCount;
+   483→  flower.on('pointerdown', () => {
+   484→    const next = Math.floor(Math.random() * window.flowerFrameCount);
+   485→    window.flowerSprite.setFrame(next);
+   486→  });
+   487→
+   488→  // === Star 在桌前工作（来自 LAYOUT）===
+   489→  this.anims.create({
+   490→    key: 'star_working',
+   491→    frames: this.anims.generateFrameNumbers('star_working', { start: 0, end: 191 }),
+   492→    frameRate: 12,
+   493→    repeat: -1
+   494→  });
+   495→  this.anims.create({
+   496→    key: 'error_bug',
+   497→    frames: this.anims.generateFrameNumbers('error_bug', { start: 0, end: 95 }),
+   498→    frameRate: 12,
+   499→    repeat: -1
+   500→  });
+   501→
+   502→  // === 错误 bug（来自 LAYOUT）===
+   503→  const errorBug = this.add.sprite(
+   504→    LAYOUT.furniture.errorBug.x,
+   505→    LAYOUT.furniture.errorBug.y,
+   506→    'error_bug',
+   507→    0
+   508→  ).setOrigin(LAYOUT.furniture.errorBug.origin.x, LAYOUT.furniture.errorBug.origin.y);
+   509→  errorBug.setDepth(LAYOUT.furniture.errorBug.depth);
+   510→  errorBug.setVisible(false);
+   511→  errorBug.setScale(LAYOUT.furniture.errorBug.scale);
+   512→  errorBug.anims.play('error_bug', true);
+   513→  window.errorBug = errorBug;
+   514→  window.errorBugDir = 1;
+   515→
+   516→  const starWorking = this.add.sprite(
+   517→    LAYOUT.furniture.starWorking.x,
+   518→    LAYOUT.furniture.starWorking.y,
+   519→    'star_working',
+   520→    0
+   521→  ).setOrigin(LAYOUT.furniture.starWorking.origin.x, LAYOUT.furniture.starWorking.origin.y);
+   522→  starWorking.setVisible(false);
+   523→  starWorking.setScale(LAYOUT.furniture.starWorking.scale);
+   524→  starWorking.setDepth(LAYOUT.furniture.starWorking.depth);
+   525→  window.starWorking = starWorking;
+   526→
+   527→  // === 同步动画（来自 LAYOUT）===
+   528→  this.anims.create({
+   529→    key: 'sync_anim',
+   530→    frames: this.anims.generateFrameNumbers('sync_anim', { start: 1, end: 52 }),
+   531→    frameRate: 12,
+   532→    repeat: -1
+   533→  });
+   534→  syncAnimSprite = this.add.sprite(
+   535→    LAYOUT.furniture.syncAnim.x,
+   536→    LAYOUT.furniture.syncAnim.y,
+   537→    'sync_anim',
+   538→    0
+   539→  ).setOrigin(LAYOUT.furniture.syncAnim.origin.x, LAYOUT.furniture.syncAnim.origin.y);
+   540→  syncAnimSprite.setDepth(LAYOUT.furniture.syncAnim.depth);
+   541→  syncAnimSprite.anims.stop();
+   542→  syncAnimSprite.setFrame(0);
+   543→
+   544→  window.starSprite = star;
+   545→
+   546→  statusText = document.getElementById('status-text');
+   547→  coordsOverlay = document.getElementById('coords-overlay');
+   548→  coordsDisplay = document.getElementById('coords-display');
+   549→  coordsToggle = document.getElementById('coords-toggle');
+   550→
+   551→  coordsToggle.addEventListener('click', () => {
+   552→    showCoords = !showCoords;
+   553→    coordsOverlay.style.display = showCoords ? 'block' : 'none';
+   554→    coordsToggle.textContent = showCoords ? '隐藏坐标' : '显示坐标';
+   555→    coordsToggle.style.background = showCoords ? '#e94560' : '#333';
+   556→  });
+   557→
+   558→  game.input.on('pointermove', (pointer) => {
+   559→    if (!showCoords) return;
+   560→    const x = Math.max(0, Math.min(config.width - 1, Math.round(pointer.x)));
+   561→    const y = Math.max(0, Math.min(config.height - 1, Math.round(pointer.y)));
+   562→    coordsDisplay.textContent = `${x}, ${y}`;
+   563→    coordsOverlay.style.left = (pointer.x + 18) + 'px';
+   564→    coordsOverlay.style.top = (pointer.y + 18) + 'px';
+   565→  });
+   566→
+   567→  loadMemo();
+   568→  fetchStatus();
+   569→  fetchAgents();
+   570→
+   571→  // 可选调试：仅在显式开启 debug 模式时渲染测试用尼卡 agent
+   572→  let debugAgents = false;
+   573→  try {
+   574→    if (typeof window !== 'undefined') {
+   575→      if (window.STAR_OFFICE_DEBUG_AGENTS === true) {
+   576→        debugAgents = true;
+   577→      } else if (window.location && window.location.search && typeof URLSearchParams !== 'undefined') {
+   578→        const sp = new URLSearchParams(window.location.search);
+   579→        if (sp.get('debugAgents') === '1') {
+   580→          debugAgents = true;
+   581→        }
+   582→      }
+   583→    }
+   584→  } catch (e) {
+   585→    debugAgents = false;
+   586→  }
+   587→
+   588→  if (debugAgents) {
+   589→    const testNika = {
+   590→      agentId: 'agent_nika',
+   591→      name: '尼卡',
+   592→      isMain: false,
+   593→      state: 'writing',
+   594→      detail: '在画像素画...',
+   595→      area: 'writing',
+   596→      authStatus: 'approved',
+   597→      updated_at: new Date().toISOString()
+   598→    };
+   599→    renderAgent(testNika);
+   600→
+   601→    window.testNikaState = 'writing';
+   602→    window.testNikaTimer = setInterval(() => {
+   603→      const states = ['idle', 'writing', 'researching', 'executing'];
+   604→      const areas = { idle: 'breakroom', writing: 'writing', researching: 'writing', executing: 'writing' };
+   605→      window.testNikaState = states[Math.floor(Math.random() * states.length)];
+   606→      const testAgent = {
+   607→        agentId: 'agent_nika',
+   608→        name: '尼卡',
+   609→        isMain: false,
+   610→        state: window.testNikaState,
+   611→        detail: '在画像素画...',
+   612→        area: areas[window.testNikaState],
+   613→        authStatus: 'approved',
+   614→        updated_at: new Date().toISOString()
+   615→      };
+   616→      renderAgent(testAgent);
+   617→    }, 5000);
+   618→  }
+   619→}
+   620→
+   621→function update(time) {
+   622→  if (time - lastFetch > FETCH_INTERVAL) { fetchStatus(); lastFetch = time; }
+   623→  if (time - lastAgentsFetch > AGENTS_FETCH_INTERVAL) { fetchAgents(); lastAgentsFetch = time; }
+   624→
+   625→  const effectiveStateForServer = pendingDesiredState || currentState;
+   626→  if (serverroom) {
+   627→    if (effectiveStateForServer === 'idle') {
+   628→      if (serverroom.anims.isPlaying) {
+   629→        serverroom.anims.stop();
+   630→        serverroom.setFrame(0);
+   631→      }
+   632→    } else {
+   633→      if (!serverroom.anims.isPlaying || serverroom.anims.currentAnim?.key !== 'serverroom_on') {
+   634→        serverroom.anims.play('serverroom_on', true);
+   635→      }
+   636→    }
+   637→  }
+   638→
+   639→  if (window.errorBug) {
+   640→    if (effectiveStateForServer === 'error') {
+   641→      window.errorBug.setVisible(true);
+   642→      if (!window.errorBug.anims.isPlaying || window.errorBug.anims.currentAnim?.key !== 'error_bug') {
+   643→        window.errorBug.anims.play('error_bug', true);
+   644→      }
+   645→      const leftX = LAYOUT.furniture.errorBug.pingPong.leftX;
+   646→      const rightX = LAYOUT.furniture.errorBug.pingPong.rightX;
+   647→      const speed = LAYOUT.furniture.errorBug.pingPong.speed;
+   648→      const dir = window.errorBugDir || 1;
+   649→      window.errorBug.x += speed * dir;
+   650→      window.errorBug.y = LAYOUT.furniture.errorBug.y;
+   651→      if (window.errorBug.x >= rightX) {
+   652→        window.errorBug.x = rightX;
+   653→        window.errorBugDir = -1;
+   654→      } else if (window.errorBug.x <= leftX) {
+   655→        window.errorBug.x = leftX;
+   656→        window.errorBugDir = 1;
+   657→      }
+   658→    } else {
+   659→      window.errorBug.setVisible(false);
+   660→      window.errorBug.anims.stop();
+   661→    }
+   662→  }
+   663→
+   664→  if (syncAnimSprite) {
+   665→    if (effectiveStateForServer === 'syncing') {
+   666→      if (!syncAnimSprite.anims.isPlaying || syncAnimSprite.anims.currentAnim?.key !== 'sync_anim') {
+   667→        syncAnimSprite.anims.play('sync_anim', true);
+   668→      }
+   669→    } else {
+   670→      if (syncAnimSprite.anims.isPlaying) syncAnimSprite.anims.stop();
+   671→      syncAnimSprite.setFrame(0);
+   672→    }
+   673→  }
+   674→
+   675→  if (time - lastBubble > BUBBLE_INTERVAL) {
+   676→    showBubble();
+   677→    lastBubble = time;
+   678→  }
+   679→  if (time - lastCatBubble > CAT_BUBBLE_INTERVAL) {
+   680→    showCatBubble();
+   681→    lastCatBubble = time;
+   682→  }
+   683→
+   684→  if (typewriterIndex < typewriterTarget.length && time - lastTypewriter > TYPEWRITER_DELAY) {
+   685→    typewriterText += typewriterTarget[typewriterIndex];
+   686→    statusText.textContent = typewriterText;
+   687→    typewriterIndex++;
+   688→    lastTypewriter = time;
+   689→  }
+   690→
+   691→  moveStar(time);
+   692→}
+   693→
+   694→function normalizeState(s) {
+   695→  if (!s) return 'idle';
+   696→  if (s === 'working') return 'writing';
+   697→  if (s === 'run' || s === 'running') return 'executing';
+   698→  if (s === 'sync') return 'syncing';
+   699→  if (s === 'research') return 'researching';
+   700→  return s;
+   701→}
+   702→
+   703→function fetchStatus() {
+   704→  fetch('/status')
+   705→    .then(response => response.json())
+   706→    .then(data => {
+   707→      const nextState = normalizeState(data.state);
+   708→      const stateInfo = STATES[nextState] || STATES.idle;
+   709→      const changed = (pendingDesiredState === null) && (nextState !== currentState);
+   710→      const nextLine = '[' + stateInfo.name + '] ' + (data.detail || '...');
+   711→      if (changed) {
+   712→        typewriterTarget = nextLine;
+   713→        typewriterText = '';
+   714→        typewriterIndex = 0;
+   715→
+   716→        pendingDesiredState = null;
+   717→        currentState = nextState;
+   718→
+   719→        if (nextState === 'idle') {
+   720→          if (game.textures.exists('sofa_busy')) {
+   721→            sofa.setTexture('sofa_busy');
+   722→            sofa.anims.play('sofa_busy', true);
+   723→          }
+   724→          star.setVisible(false);
+   725→          star.anims.stop();
+   726→          if (window.starWorking) {
+   727→            window.starWorking.setVisible(false);
+   728→            window.starWorking.anims.stop();
+   729→          }
+   730→        } else if (nextState === 'error') {
+   731→          sofa.anims.stop();
+   732→          sofa.setTexture('sofa_idle');
+   733→          star.setVisible(false);
+   734→          star.anims.stop();
+   735→          if (window.starWorking) {
+   736→            window.starWorking.setVisible(false);
+   737→            window.starWorking.anims.stop();
+   738→          }
+   739→        } else if (nextState === 'syncing') {
+   740→          sofa.anims.stop();
+   741→          sofa.setTexture('sofa_idle');
+   742→          star.setVisible(false);
+   743→          star.anims.stop();
+   744→          if (window.starWorking) {
+   745→            window.starWorking.setVisible(false);
+   746→            window.starWorking.anims.stop();
+   747→          }
+   748→        } else {
+   749→          sofa.anims.stop();
+   750→          sofa.setTexture('sofa_idle');
+   751→          star.setVisible(false);
+   752→          star.anims.stop();
+   753→          if (window.starWorking) {
+   754→            window.starWorking.setVisible(true);
+   755→            window.starWorking.anims.play('star_working', true);
+   756→          }
+   757→        }
+   758→
+   759→        if (serverroom) {
+   760→          if (nextState === 'idle') {
+   761→            serverroom.anims.stop();
+   762→            serverroom.setFrame(0);
+   763→          } else {
+   764→            serverroom.anims.play('serverroom_on', true);
+   765→          }
+   766→        }
+   767→
+   768→        if (syncAnimSprite) {
+   769→          if (nextState === 'syncing') {
+   770→            if (!syncAnimSprite.anims.isPlaying || syncAnimSprite.anims.currentAnim?.key !== 'sync_anim') {
+   771→              syncAnimSprite.anims.play('sync_anim', true);
+   772→            }
+   773→          } else {
+   774→            if (syncAnimSprite.anims.isPlaying) syncAnimSprite.anims.stop();
+   775→            syncAnimSprite.setFrame(0);
+   776→          }
+   777→        }
+   778→      } else {
+   779→        if (!typewriterTarget || typewriterTarget !== nextLine) {
+   780→          typewriterTarget = nextLine;
+   781→          typewriterText = '';
+   782→          typewriterIndex = 0;
+   783→        }
+   784→      }
+   785→    })
+   786→    .catch(error => {
+   787→      typewriterTarget = '连接失败，正在重试...';
+   788→      typewriterText = '';
+   789→      typewriterIndex = 0;
+   790→    });
+   791→}
+   792→
+   793→function moveStar(time) {
+   794→  const effectiveState = pendingDesiredState || currentState;
+   795→  const stateInfo = STATES[effectiveState] || STATES.idle;
+   796→  const baseTarget = areas[stateInfo.area] || areas.breakroom;
+   797→
+   798→  const dx = targetX - star.x;
+   799→  const dy = targetY - star.y;
+   800→  const dist = Math.sqrt(dx * dx + dy * dy);
+   801→  const speed = 1.4;
+   802→  const wobble = Math.sin(time / 200) * 0.8;
+   803→
+   804→  if (dist > 3) {
+   805→    star.x += (dx / dist) * speed;
+   806→    star.y += (dy / dist) * speed;
+   807→    star.setY(star.y + wobble);
+   808→    isMoving = true;
+   809→  } else {
+   810→    if (waypoints && waypoints.length > 0) {
+   811→      waypoints.shift();
+   812→      if (waypoints.length > 0) {
+   813→        targetX = waypoints[0].x;
+   814→        targetY = waypoints[0].y;
+   815→        isMoving = true;
+   816→      } else {
+   817→        if (pendingDesiredState !== null) {
+   818→          isMoving = false;
+   819→          currentState = pendingDesiredState;
+   820→          pendingDesiredState = null;
+   821→
+   822→          if (currentState === 'idle') {
+   823→            star.setVisible(false);
+   824→            star.anims.stop();
+   825→            if (window.starWorking) {
+   826→              window.starWorking.setVisible(false);
+   827→              window.starWorking.anims.stop();
+   828→            }
+   829→          } else {
+   830→            star.setVisible(false);
+   831→            star.anims.stop();
+   832→            if (window.starWorking) {
+   833→              window.starWorking.setVisible(true);
+   834→              window.starWorking.anims.play('star_working', true);
+   835→            }
+   836→          }
+   837→        }
+   838→      }
+   839→    } else {
+   840→      if (pendingDesiredState !== null) {
+   841→        isMoving = false;
+   842→        currentState = pendingDesiredState;
+   843→        pendingDesiredState = null;
+   844→
+   845→        if (currentState === 'idle') {
+   846→          star.setVisible(false);
+   847→          star.anims.stop();
+   848→          if (window.starWorking) {
+   849→            window.starWorking.setVisible(false);
+   850→            window.starWorking.anims.stop();
+   851→          }
+   852→          if (game.textures.exists('sofa_busy')) {
+   853→            sofa.setTexture('sofa_busy');
+   854→            sofa.anims.play('sofa_busy', true);
+   855→          }
+   856→        } else {
+   857→          star.setVisible(false);
+   858→          star.anims.stop();
+   859→          if (window.starWorking) {
+   860→            window.starWorking.setVisible(true);
+   861→            window.starWorking.anims.play('star_working', true);
+   862→          }
+   863→          sofa.anims.stop();
+   864→          sofa.setTexture('sofa_idle');
+   865→        }
+   866→      }
+   867→    }
+   868→  }
+   869→}
+   870→
+   871→function showBubble() {
+   872→  if (bubble) { bubble.destroy(); bubble = null; }
+   873→  const texts = BUBBLE_TEXTS[currentState] || BUBBLE_TEXTS.idle;
+   874→  if (currentState === 'idle') return;
+   875→
+   876→  let anchorX = star.x;
+   877→  let anchorY = star.y;
+   878→  if (currentState === 'syncing' && syncAnimSprite && syncAnimSprite.visible) {
+   879→    anchorX = syncAnimSprite.x;
+   880→    anchorY = syncAnimSprite.y;
+   881→  } else if (currentState === 'error' && window.errorBug && window.errorBug.visible) {
+   882→    anchorX = window.errorBug.x;
+   883→    anchorY = window.errorBug.y;
+   884→  } else if (!star.visible && window.starWorking && window.starWorking.visible) {
+   885→    anchorX = window.starWorking.x;
+   886→    anchorY = window.starWorking.y;
+   887→  }
+   888→
+   889→  const text = texts[Math.floor(Math.random() * texts.length)];
+   890→  const bubbleY = anchorY - 70;
+   891→  const bg = game.add.rectangle(anchorX, bubbleY, text.length * 10 + 20, 28, 0xffffff, 0.95);
+   892→  bg.setStrokeStyle(2, 0x000000);
+   893→  const txt = game.add.text(anchorX, bubbleY, text, { fontFamily: 'ArkPixel, monospace', fontSize: '12px', fill: '#000', align: 'center' }).setOrigin(0.5);
+   894→  bubble = game.add.container(0, 0, [bg, txt]);
+   895→  bubble.setDepth(1200);
+   896→  setTimeout(() => { if (bubble) { bubble.destroy(); bubble = null; } }, 3000);
+   897→}
+   898→
+   899→function showCatBubble() {
+   900→  if (!window.catSprite) return;
+   901→  if (window.catBubble) { window.catBubble.destroy(); window.catBubble = null; }
+   902→  const texts = BUBBLE_TEXTS.cat || ['喵~', '咕噜咕噜…'];
+   903→  const text = texts[Math.floor(Math.random() * texts.length)];
+   904→  const anchorX = window.catSprite.x;
+   905→  const anchorY = window.catSprite.y - 60;
+   906→  const bg = game.add.rectangle(anchorX, anchorY, text.length * 10 + 20, 24, 0xfffbeb, 0.95);
+   907→  bg.setStrokeStyle(2, 0xd4a574);
+   908→  const txt = game.add.text(anchorX, anchorY, text, { fontFamily: 'ArkPixel, monospace', fontSize: '11px', fill: '#8b6914', align: 'center' }).setOrigin(0.5);
+   909→  window.catBubble = game.add.container(0, 0, [bg, txt]);
+   910→  window.catBubble.setDepth(2100);
+   911→  setTimeout(() => { if (window.catBubble) { window.catBubble.destroy(); window.catBubble = null; } }, 4000);
+   912→}
+   913→
+   914→function fetchAgents() {
+   915→  fetch('/agents?t=' + Date.now(), { cache: 'no-store' })
+   916→    .then(response => response.json())
+   917→    .then(data => {
+   918→      if (!Array.isArray(data)) return;
+   919→      // 重置位置计数器
+   920→      // 按区域分配不同位置索引，避免重叠
+   921→      const areaSlots = { breakroom: 0, writing: 0, error: 0 };
+   922→      for (let agent of data) {
+   923→        const area = agent.area || 'breakroom';
+   924→        agent._slotIndex = areaSlots[area] || 0;
+   925→        areaSlots[area] = (areaSlots[area] || 0) + 1;
+   926→        renderAgent(agent);
+   927→      }
+   928→      // 移除不再存在的 agent
+   929→      const currentIds = new Set(data.map(a => a.agentId));
+   930→      for (let id in agents) {
+   931→        if (!currentIds.has(id)) {
+   932→          if (agents[id]) {
+   933→            agents[id].destroy();
+   934→            delete agents[id];
+   935→          }
+   936→        }
+   937→      }
+   938→    })
+   939→    .catch(error => {
+   940→      console.error('拉取 agents 失败:', error);
+   941→    });
+   942→}
+   943→
+   944→function getAreaPosition(area, slotIndex) {
+   945→  const positions = AREA_POSITIONS[area] || AREA_POSITIONS.breakroom;
+   946→  const idx = (slotIndex || 0) % positions.length;
+   947→  return positions[idx];
+   948→}
+   949→
+   950→function renderAgent(agent) {
+   951→  const agentId = agent.agentId;
+   952→  const name = agent.name || 'Agent';
+   953→  const area = agent.area || 'breakroom';
+   954→  const authStatus = agent.authStatus || 'pending';
+   955→  const isMain = !!agent.isMain;
+   956→
+   957→  // 获取这个 agent 在区域里的位置
+   958→  const pos = getAreaPosition(area, agent._slotIndex || 0);
+   959→  const baseX = pos.x;
+   960→  const baseY = pos.y;
+   961→
+   962→  // 颜色
+   963→  const bodyColor = AGENT_COLORS[agentId] || AGENT_COLORS.default;
+   964→  const nameColor = NAME_TAG_COLORS[authStatus] || NAME_TAG_COLORS.default;
+   965→
+   966→  // 透明度（离线/待批准/拒绝时变半透明）
+   967→  let alpha = 1;
+   968→  if (authStatus === 'pending') alpha = 0.7;
+   969→  if (authStatus === 'rejected') alpha = 0.4;
+   970→  if (authStatus === 'offline') alpha = 0.5;
+   971→
+   972→  if (!agents[agentId]) {
+   973→    // 新建 agent
+   974→    const container = game.add.container(baseX, baseY);
+   975→    container.setDepth(1200 + (isMain ? 100 : 0)); // 放到最顶层！
+   976→
+   977→    // 像素小人：用星星图标，更明显
+   978→    const starIcon = game.add.text(0, 0, '⭐', {
+   979→      fontFamily: 'ArkPixel, monospace',
+   980→      fontSize: '32px'
+   981→    }).setOrigin(0.5);
+   982→    starIcon.name = 'starIcon';
+   983→
+   984→    // 名字标签（漂浮）
+   985→    const nameTag = game.add.text(0, -36, name, {
+   986→      fontFamily: 'ArkPixel, monospace',
+   987→      fontSize: '14px',
+   988→      fill: '#' + nameColor.toString(16).padStart(6, '0'),
+   989→      stroke: '#000',
+   990→      strokeThickness: 3,
+   991→      backgroundColor: 'rgba(255,255,255,0.95)'
+   992→    }).setOrigin(0.5);
+   993→    nameTag.name = 'nameTag';
+   994→
+   995→    // 状态小点（绿色/黄色/红色）
+   996→    let dotColor = 0x64748b;
+   997→    if (authStatus === 'approved') dotColor = 0x22c55e;
+   998→    if (authStatus === 'pending') dotColor = 0xf59e0b;
+   999→    if (authStatus === 'rejected') dotColor = 0xef4444;
+  1000→    if (authStatus === 'offline') dotColor = 0x94a3b8;
+  1001→    const statusDot = game.add.circle(20, -20, 5, dotColor, alpha);
+  1002→    statusDot.setStrokeStyle(2, 0x000000, alpha);
+  1003→    statusDot.name = 'statusDot';
+  1004→
+  1005→    container.add([starIcon, statusDot, nameTag]);
+  1006→    agents[agentId] = container;
+  1007→  } else {
+  1008→    // 更新 agent
+  1009→    const container = agents[agentId];
+  1010→    container.setPosition(baseX, baseY);
+  1011→    container.setAlpha(alpha);
+  1012→    container.setDepth(1200 + (isMain ? 100 : 0));
+  1013→
+  1014→    // 更新名字和颜色（如果变化）
+  1015→    const nameTag = container.getAt(2);
+  1016→    if (nameTag && nameTag.name === 'nameTag') {
+  1017→      nameTag.setText(name);
+  1018→      nameTag.setFill('#' + (NAME_TAG_COLORS[authStatus] || NAME_TAG_COLORS.default).toString(16).padStart(6, '0'));
+  1019→    }
+  1020→    // 更新状态点颜色
+  1021→    const statusDot = container.getAt(1);
+  1022→    if (statusDot && statusDot.name === 'statusDot') {
+  1023→      let dotColor = 0x64748b;
+  1024→      if (authStatus === 'approved') dotColor = 0x22c55e;
+  1025→      if (authStatus === 'pending') dotColor = 0xf59e0b;
+  1026→      if (authStatus === 'rejected') dotColor = 0xef4444;
+  1027→      if (authStatus === 'offline') dotColor = 0x94a3b8;
+  1028→      statusDot.fillColor = dotColor;
+  1029→    }
+  1030→  }
+  1031→}
+  1032→
+  1033→// 启动游戏
+  1034→initGame();
+  1035→
